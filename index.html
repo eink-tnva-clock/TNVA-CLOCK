@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f6c63d">
+  <meta name="description" content="TNVA CLOCK Studio cho E-ink 2.13 inch và 4.2 inch 3 màu">
+  <title>TNVA CLOCK Studio</title>
+  <link rel="stylesheet" href="assets/css/app.css?v=231">
+  <link rel="stylesheet" href="assets/css/carnival.css?v=231">
+</head>
+<body data-theme="carnival">
+  <section id="connectGate" class="gate hidden" aria-hidden="true">
+    <div class="gate-card">
+      <h1>TNVA CLOCK</h1>
+      <p id="gateStatus">Sẵn sàng</p>
+      <button id="connectGateBtn" class="btn primary">Kết nối đồng hồ</button>
+    </div>
+  </section>
+
+  <main id="appShell" class="app-shell">
+    <header class="topbar carnival-masthead">
+      <div class="carnival-brand">
+        <div id="brandTapTarget" class="carnival-wordmark" aria-label="TNVA CLOCK"><span>TNVA</span><em>CLOCK</em></div>
+        <div class="brand-inline-copy">
+          <strong>TNVA CLOCK · Carnival Studio</strong>
+          <small>E‑ink 2.13" · 4.2" 3 màu</small>
+        </div>
+      </div>
+
+      <div class="masthead-tools">
+        <details class="log-panel activity-console">
+          <summary><span class="activity-dot"></span><span id="liveActivity">Sẵn sàng</span><span id="logCount">0</span></summary>
+          <div class="log-head"><strong>Nhật ký hoạt động</strong><select id="logSeverityFilter"><option value="all">Tất cả</option><option value="error">Lỗi</option><option value="warn">Cảnh báo</option><option value="ok">OK</option></select><div><button id="copyLogBtn">Sao chép</button><button id="downloadLogTxtBtn">Tải nhật ký (gửi cho hỗ trợ)</button><button id="downloadLogJsonBtn">JSON</button><button id="clearLogBtn">Xóa</button></div></div>
+          <div id="logWindow"></div>
+        </details>
+        <details class="service-settings" id="adminServicePanel">
+          <summary>Máy chủ Pi</summary>
+          <div><input id="serviceServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.202:8080" autocomplete="url" spellcheck="false"><button id="saveServiceUrlBtn" class="btn compact" type="button">Lưu</button></div>
+        </details>
+        <!-- R25.10 (mục 4): panel chỉ hiện khi chip THẬT báo chưa kích
+             hoạt (cờ FF01, không phải cache trình duyệt) -- ẩn hẳn (không
+             chỉ badge) một khi đã kích hoạt. setActivationPanelVisibility()
+             trong app.js quyết định hidden/không mỗi lần đọc trạng thái. -->
+        <details class="service-settings" id="activationPanel">
+          <summary>⚠ Kích hoạt thiết bị</summary>
+          <p class="prop-help">Thiết bị chưa kích hoạt: giờ vẫn chạy bình thường, nhưng mọi lệnh điều khiển qua Bluetooth (đổi giờ, đổi giao diện, cập nhật phần mềm...) đang bị khoá cho tới khi kích hoạt.</p>
+          <div class="form-grid" style="display:grid;gap:8px">
+            <div class="row" style="display:flex;gap:8px;align-items:center">
+              <code id="activationDeviceId" style="flex:1">--</code>
+              <button id="activationCopyDeviceIdBtn" class="btn compact" type="button" disabled>Sao chép</button>
+            </div>
+            <input id="activationRequestNote" placeholder="Ghi chú (tuỳ chọn)">
+            <button id="activationRequestBtn" class="btn compact" type="button">Gửi yêu cầu kích hoạt</button>
+            <p id="activationRequestResult" class="prop-help"></p>
+            <button id="activationCheckBtn" class="btn primary compact hidden" type="button">Đã được duyệt -- Kích hoạt ngay</button>
+            <!-- Lệnh Studio (mục E3, 2026-08-26): link thật, mở tab mới,
+                 trên điện thoại hệ điều hành tự nhận diện zalo.me và mở
+                 thẳng app Zalo vào đúng chat -- không cần xử lý gì thêm ở
+                 đây, đó là hành vi mặc định của link zalo.me. -->
+            <a class="btn primary" href="https://zalo.me/0349816027" target="_blank" rel="noopener">Liên hệ kích hoạt qua Zalo</a>
+            <details>
+              <summary class="mini">Tôi có mã từ CLI (khi máy chủ Pi đang bảo trì)</summary>
+              <textarea id="activationCliCode" rows="3" placeholder="Dán mã dài do quản trị gửi qua Zalo"></textarea>
+              <button id="activationCliApplyBtn" class="btn compact" type="button">Áp dụng mã</button>
+            </details>
+          </div>
+        </details>
+        <details class="service-settings" id="clockCorrectionPanel">
+          <summary>Hiệu chỉnh giờ thủ công<span id="clockCorrectionBadge" class="hidden"></span></summary>
+          <p class="prop-help">Không còn tự động bù giờ ngầm -- tự nhập số hiệu chỉnh, máy nhớ lại và cộng vào mỗi lần bấm "Đồng bộ giờ". Số dương = đặt đồng hồ nhanh hơn giờ thực trên máy này; số âm = chậm hơn.</p>
+          <div class="form-grid" style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center">
+            <input id="clockCorrectionValue" type="number" step="1" placeholder="0">
+            <select id="clockCorrectionUnit"><option value="1">giây</option><option value="60">phút</option></select>
+            <button id="clockCorrectionSaveBtn" class="btn compact" type="button">Lưu</button>
+          </div>
+        </details>
+        <!-- R25.10 (mục 6v): công tắc mặc định tắt, hiện giải thích 1 lần
+             trước khi bật (xem #telemetryExplainModal ở cuối trang) -- nút
+             gửi thủ công luôn hiện bất kể công tắc. -->
+        <details class="service-settings" id="telemetryPanel">
+          <summary>Gửi báo cáo lỗi<span id="telemetryBadge" class="hidden"> · đang bật</span></summary>
+          <p class="prop-help">Chỉ gửi 6 loại lỗi nghiêm trọng (mất BLE bất thường, ghi flash lỗi, cập nhật phần mềm lỗi, giao diện bị từ chối, lỗi atlas, lỗi phần mềm web) -- không gửi thao tác thường ngày, không gửi nội dung giao diện hay ảnh bạn tự thiết kế.</p>
+          <label class="checkbox-row"><input id="telemetryToggle" type="checkbox"><span>Tự động gửi báo cáo lỗi</span></label>
+          <button id="telemetrySendNowBtn" class="btn compact" type="button">Gửi báo cáo thủ công ngay</button>
+        </details>
+        <div class="device-actions">
+          <div class="device-pill"><span class="status-dot"></span><span id="deviceLabel">Chưa kết nối</span></div>
+          <button id="connectDeviceBtn" class="btn primary compact">Kết nối đồng hồ</button>
+          <button id="disconnectBtn" class="btn compact" disabled>Ngắt</button>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Điều hướng chính">
+      <div class="nav-title"><b>ĐIỀU KHIỂN</b><small>TNVA CLOCK</small></div>
+      <button class="tab active" data-view="main"><span>⌂</span>Chính</button>
+      <button class="tab" data-view="library"><span>▦</span>Kho</button>
+      <button class="tab" data-view="designer"><span>✦</span>Thiết kế</button>
+      <button class="tab" data-view="image"><span>▧</span>Ảnh</button>
+      <button class="tab" data-view="countdown"><span>◷</span>Đếm ngược</button>
+    </nav>
+
+    <section id="mainView" class="view active">
+      <section class="hero panel carnival-hero">
+        <div>
+          <span class="eyebrow">TNVA / CARNIVAL STUDIO</span>
+          <h1>TNVA CLOCK Studio</h1>
+          <p>Chọn giao diện, thiết kế và gửi vào đồng hồ.</p>
+        </div>
+        <div class="hero-actions">
+          <button id="syncTimeBtn" class="btn primary" disabled>Đồng bộ giờ</button>
+        </div>
+      </section>
+
+      <section class="device-grid">
+        <article class="device-card panel"><span>Thiết bị</span><strong id="deviceName">Chưa kết nối</strong></article>
+        <article class="device-card panel"><span>Trạng thái</span><strong id="deviceState">Chưa kết nối</strong></article>
+        <article class="device-card panel"><span>Điện áp</span><strong id="deviceVoltage">--</strong></article>
+        <article class="device-card panel"><span>Nhiệt độ E‑ink</span><strong id="deviceTemperature">--.-°C</strong></article>
+        <article class="device-card panel"><span>Thời gian</span><strong id="deviceTime">--</strong></article>
+      </section>
+
+      <section id="firmwareUpdatePanel" class="firmware-update panel hidden">
+        <div><span class="eyebrow">CẬP NHẬT PHẦN MỀM</span><h2 id="firmwareUpdateTitle">Kiểm tra bản cập nhật</h2><p id="firmwareUpdateNotes">Cập nhật qua Bluetooth.</p></div>
+        <div class="firmware-actions"><button id="checkFirmwareBtn" class="btn">Kiểm tra</button><button id="installFirmwareBtn" class="btn primary hidden">Cập nhật qua Bluetooth</button><button id="cancelFirmwareBtn" class="btn hidden">Huỷ</button><div id="firmwareProgress" class="progress hidden"><span></span><small id="firmwareProgressText">0%</small></div></div>
+      </section>
+
+      <div class="section-title"><div><span class="eyebrow">MẶT TÍCH HỢP</span><h2>6 mặt tích hợp</h2></div></div>
+      <section id="builtinFaces" class="face-grid">
+        <article class="face-card panel" data-face-card="0"><div class="face-preview"><img src="previews/app-man1.png?v=24" alt="Giờ và âm lịch"></div><div class="face-copy"><div><b>Giờ + âm lịch</b></div><span>01</span></div><button class="btn primary apply-face" data-face="0" disabled>Áp dụng</button></article>
+        <article class="face-card panel" data-face-card="1"><div class="face-preview portrait"><img src="previews/face-portrait-info.png?v=24" alt="Dọc giờ và thông tin"></div><div class="face-copy"><div><b>Dọc · Thông tin</b></div><span>02</span></div><button class="btn primary apply-face" data-face="1" disabled>Áp dụng</button></article>
+        <article class="face-card panel" data-face-card="2"><div class="face-preview portrait"><img src="previews/face-portrait-lunar.png?v=24" alt="Dọc lịch âm"></div><div class="face-copy"><div><b>Dọc · Lịch âm</b></div><span>03</span></div><button class="btn primary apply-face" data-face="2" disabled>Áp dụng</button></article>
+        <article class="face-card panel" data-face-card="3"><div class="face-preview"><img src="previews/face-calendar-split.png?v=23" alt="Lịch tháng chia đôi"></div><div class="face-copy"><div><b>Lịch tháng chia đôi</b></div><span>04</span></div><button class="btn primary apply-face" data-face="3" disabled>Áp dụng</button></article>
+        <article class="face-card panel" data-face-card="4"><div class="face-preview"><img src="previews/face-outline-minimal.png?v=27" alt="Lịch âm chi tiết"></div><div class="face-copy"><div><b>Lịch âm chi tiết</b><small>Lịch tháng đầy đủ, Can Chi, tiết khí sắp tới</small></div><span>05</span></div><button class="btn primary apply-face" data-face="4" disabled>Áp dụng</button></article>
+        <article class="face-card panel active-face" data-face-card="5"><div class="face-preview portrait"><img src="previews/face-viet-calendar.png?v=25" alt="Sự kiện sắp tới"></div><div class="face-copy"><div><b>Sự kiện sắp tới</b><small>Đếm ngày đến các dịp lễ</small></div><span>06</span></div><button class="btn primary apply-face" data-face="5" disabled>Áp dụng</button></article>
+      </section>
+    </section>
+
+    <section id="libraryView" class="view">
+      <section class="library-toolbar panel">
+        <div><span class="eyebrow">KHO TNVA</span><h2>Kho giao diện</h2><small>Giao diện cộng đồng và giao diện đã lưu</small></div>
+        <div class="segmented library-segments" role="tablist" aria-label="Nguồn giao diện">
+          <button class="library-tab active" data-library="warehouse">Kho có sẵn</button>
+          <button class="library-tab" data-library="public">Cộng đồng</button>
+          <button class="library-tab" data-library="local">Đã lưu</button>
+        </div>
+        <div class="library-actions"><input id="librarySearch" type="search" placeholder="Tìm tên hoặc tác giả"><select id="libraryOrientationFilter"><option value="auto">Khớp hướng đang thiết kế</option><option value="landscape">Ngang</option><option value="portrait">Dọc</option><option value="all">Cả hai</option></select></div>
+      </section>
+      <div id="localLibrary" class="card-grid hidden"></div>
+      <div id="publicLibrary" class="card-grid hidden"></div>
+      <div id="warehouseLibrary" class="card-grid"></div>
+    </section>
+
+    <section id="designerView" class="view">
+      <section class="designer-intro panel designer-pro-intro">
+        <div><span class="eyebrow">XƯỞNG THIẾT KẾ TNVA</span><h2 id="designerDeviceTitle">Thiết kế 212 × 104</h2></div>
+        <div class="designer-intro-actions"><button id="open42SamplesBtn" class="btn hidden">Mẫu 4.2</button><button id="previewPngBtn" class="btn">Xuất PNG</button><button id="openFileBtn" class="btn">Mở tệp</button><button id="downloadProjectBtn" class="btn">Tải dự án</button></div>
+      </section>
+
+      <div class="designer-pro-layout">
+        <section class="workspace panel designer-screen-card">
+          <div class="workspace-bar pro-workspace-bar">
+            <div class="segmented"><button id="undoBtn" title="Hoàn tác">↶</button><button id="redoBtn" title="Làm lại">↷</button><button id="copyBtn" title="Sao chép">⧉</button><button id="pasteBtn" title="Dán">▣</button><button id="duplicateBtn" title="Nhân bản">＋</button><button id="deleteBtn" title="Xóa">⌫</button></div>
+            <div class="workspace-center"><select id="screenProfile"><option value="212x104">2.13" Ngang 212 × 104</option><option value="104x212">2.13" Dọc 104 × 212</option><option value="400x300">4.2" 3 màu Ngang 400 × 300</option><option value="300x400">4.2" 3 màu Dọc 300 × 400</option></select><select id="planePreview" class="hidden" title="Xem riêng từng mặt phẳng màu"><option value="combined">Đen + đỏ</option><option value="black">Chỉ đen</option><option value="red">Chỉ đỏ</option></select><button id="snapBtn" class="toggle active">Bám pixel</button><button id="gridBtn" class="toggle active">Lưới</button><button id="bwBtn" class="toggle active">1‑bit</button></div>
+            <div class="zoom-control"><button id="zoomOutBtn">−</button><span id="zoomLabel">400%</span><button id="zoomInBtn">+</button></div>
+          </div>
+          <!-- R25.12 (Phần B mục 9): chỉ hiện khi project.planes===2 -- nhắc
+               rõ 4.2" hiện CHỈ HỖ TRỢ THIẾT KẾ, chưa gửi lên máy được (chưa
+               có firmware/driver thật). -->
+          <div id="designOnlyBanner" class="design-only-banner hidden">⚠ Thiết bị 4.2" 3 màu hiện <b>CHỈ HỖ TRỢ THIẾT KẾ</b> -- chưa có firmware/driver thật, chưa gửi lên máy hay đăng kho được. Dùng "Xuất gói" để lưu file thiết kế (.tnva42design).</div>
+          <!-- R25.13 Bước 3: chỉ hiện khi ĐÃ kết nối và panel thật (đọc từ
+               DEVICE_INFO) khác deviceClass của project đang mở trên canvas
+               -- cảnh báo thôi, KHÔNG tự chặn/tự gửi gì. -->
+          <div id="panelMismatchBanner" class="design-only-banner hidden"></div>
+          <div class="stage-scroller"><div class="stage-wrap eink-device-frame"><canvas id="designCanvas" width="212" height="104"></canvas></div></div>
+          <div class="workspace-footer"><span id="selectionInfo">Không chọn</span><span title="Dung lượng gói TNF1 gửi lên đồng hồ -- ngưỡng thật do chip báo về khi đã kết nối, mặc định 4KB khi chưa kết nối.">Gói: <b id="packageInfo">0.0 / 4 KB</b></span><span id="atlasInfoRow" class="hidden" title="Dung lượng atlas font tự tạo (nếu face dùng font script) -- 1 slot dùng được, không phải toàn bộ 8KB vùng flash dành cho 2 slot ghi an toàn.">Atlas: <b id="atlasInfo">-</b></span><span id="ramInfoRow" class="hidden" title="RAM firmware còn dư sau khi khởi động -- số đo tĩnh lúc build, không đổi theo từng face.">RAM chip: <b id="ramInfo">-</b></span><span id="refreshInfoRow" class="hidden" title="Ước tính thời gian E-Ink quét lại toàn màn -- CHƯA đo trên phần cứng thật, tham khảo theo panel 3 màu cùng lớp.">Refresh (ước tính): <b id="refreshInfo">-</b></span></div>
+          <!-- R25.12 (mục 7, đề xuất #1): xem cỡ THẬT, không phóng to -- ở
+               zoom 400% mặc định, chữ 7px trông như 28px trên màn hình,
+               người thiết kế dễ đánh giá sai độ rõ thật trên máy. Canvas này
+               luôn vẽ lại đúng 1 pixel thiết bị = 1 pixel CSS (không nội
+               suy/làm mờ), cập nhật sống theo main canvas. -->
+          <div class="true-size-panel">
+            <span class="true-size-label">Cỡ thật (không phóng to, đúng như trên máy)</span>
+            <canvas id="trueSizePreview" width="212" height="104"></canvas>
+          </div>
+        </section>
+
+        <section class="object-dock panel" aria-label="Đối tượng">
+          <div class="object-dock-head"><strong>Đối tượng</strong><button id="addObjectBtn" class="add-object-btn" type="button">＋</button></div>
+          <div id="mobileLayersList" class="object-card-strip"></div>
+          <div class="quick-add-strip">
+            <button class="quick-add" data-add="time"><span>◷</span>Đồng hồ</button>
+            <button class="quick-add" data-add="holiday"><span>★</span>Ngày lễ</button>
+            <button class="quick-add" data-add="weekStrip"><span>▤</span>Lịch tuần</button>
+            <button class="quick-add" data-add="calendar"><span>▦</span>Lịch tháng</button>
+            <label class="quick-add file-tool"><span>▧</span>Hình ảnh<input id="imageInput" type="file" accept="image/*" hidden></label>
+            <button class="quick-add" id="tetDecorBtn" type="button"><span>福</span>Trang trí Tết</button>
+            <button class="quick-add" data-add="shape"><span>◯</span>Hình học</button>
+            <button class="quick-add" id="bitmapEditorBtn"><span>▦</span>Chấm điểm</button>
+          </div>
+        </section>
+
+        <aside class="inspector panel pro-inspector">
+          <div class="inspector-head"><div><span class="eyebrow">THUỘC TÍNH</span><strong id="inspectorTitle">Chưa chọn đối tượng</strong></div><div class="layer-actions"><button id="layerUpBtn" title="Đưa lên">↑</button><button id="layerDownBtn" title="Đưa xuống">↓</button></div></div>
+          <div id="emptyInspector" class="empty-state">Chọn đối tượng để chỉnh.</div>
+          <div id="propertyForm" class="property-form hidden"></div>
+
+          <section id="positionPanel" class="position-panel hidden">
+            <div class="align-strip">
+              <button data-align="left" title="Sát trái">⇤</button><button data-align="hcenter" title="Giữa ngang">↔</button><button data-align="right" title="Sát phải">⇥</button>
+              <button data-align="top" title="Sát trên">↥</button><button data-align="vcenter" title="Giữa dọc">↕</button><button data-align="bottom" title="Sát dưới">↧</button>
+            </div>
+            <div class="nudge-pad" aria-label="Di chuyển đối tượng">
+              <button data-nudge="0,-1">⌃</button><button data-nudge="-1,0">‹</button><button id="nudgeStepBtn" class="nudge-center" data-step="1">1 px</button><button data-nudge="1,0">›</button><button data-nudge="0,1">⌄</button>
+            </div>
+          </section>
+
+          <details class="layers-details"><summary>Danh sách lớp <span id="layerCount">0</span></summary><div id="layersList" class="layers-list"></div></details>
+        </aside>
+      </div>
+
+      <aside id="objectPalette" class="object-palette panel hidden" aria-hidden="true">
+        <div class="palette-head"><strong>Thêm đối tượng</strong><button id="closeObjectPalette" type="button">×</button></div>
+        <div class="palette-grid">
+          <button class="tool" data-add="text"><span>T</span>Văn bản</button>
+          <button class="tool" data-add="time"><span>◷</span>Đồng hồ số</button>
+          <button class="tool" data-add="analog"><span>◴</span>Đồng hồ kim</button>
+          <button class="tool" data-add="calendar"><span>▦</span>Lịch tháng</button>
+          <button class="tool" data-add="date"><span>日</span>Ngày</button>
+          <button class="tool" data-add="dayOnly"><span>@d</span>Ngày (riêng)</button>
+          <button class="tool" data-add="monthOnly"><span>@M</span>Tháng (riêng)</button>
+          <button class="tool" data-add="yearOnly"><span>@y</span>Năm (riêng)</button>
+          <button class="tool" data-add="weekday"><span>T2</span>Thứ</button>
+          <button class="tool" data-add="lunar"><span>ÂL</span>Âm lịch</button>
+          <button class="tool" data-add="canchi"><span>CC</span>Can Chi</button>
+          <button class="tool" data-add="holiday"><span>★</span>Ngày lễ</button>
+          <button class="tool" data-add="temperature"><span>°C</span>Nhiệt độ</button>
+          <button class="tool" data-add="voltage"><span>V</span>Điện áp</button>
+          <button class="tool" data-add="batteryPercent"><span>%</span>Phần trăm pin</button>
+          <button class="tool" data-add="battery"><span>▰</span>Pin</button>
+          <button class="tool" data-add="weekStrip"><span>▤</span>Lịch tuần</button>
+          <label class="tool file-tool"><span>▧</span>Hình ảnh<input class="paletteImageInput" type="file" accept="image/*" hidden></label>
+          <button class="tool" id="paletteTetDecorBtn" type="button"><span>福</span>Trang trí Tết</button>
+          <button class="tool" data-add="shape"><span>◯</span>Hình học</button>
+          <button class="tool" data-add="line"><span>／</span>Đường thẳng</button>
+          <button class="tool" data-add="rect"><span>□</span>Khung</button>
+          <button class="tool" data-add="invertRegion"><span>▮</span>Vùng tô</button>
+          <button class="tool" id="paletteBitmapBtn"><span>▦</span>Chấm từng điểm</button>
+        </div>
+      </aside>
+
+      <div class="bottom-actions panel pro-bottom-actions"><div class="file-name-group"><input id="designTitle" value="Giao diện mới" placeholder="Tên giao diện"><input id="designAuthor" placeholder="Tác giả"></div><div class="action-group"><button id="newDesignBtn" class="btn">Tạo mới</button><button id="saveLocalBtn" class="btn">Lưu</button><button id="downloadBtn" class="btn">Xuất gói</button><button id="publishBtn" class="btn">Đăng kho</button><button id="installBtn" class="btn primary">Gửi vào đồng hồ</button></div><input id="projectFileInput" type="file" accept=".tnvaproject,.tnvaface,.eink,.json,application/json" hidden></div>
+      <div class="image-fit-actions hidden"><button id="fitImageBtn"></button><button id="fillImageBtn"></button><button id="resetImageBtn"></button></div>
+    </section>
+
+    <section id="imageView" class="view">
+      <section class="designer-intro panel"><div><span class="eyebrow">XỬ LÝ ẢNH TNVA</span><h2>Đưa ảnh lên E‑ink</h2></div><label class="btn primary file-label">Chọn ảnh<input id="photoInput" type="file" accept="image/*" hidden></label></section>
+      <div class="image-studio">
+        <section class="image-preview-panel panel"><div class="screen-frame"><canvas id="photoCanvas" width="212" height="104"></canvas></div><div class="image-toolbar"><button id="photoZoomOut" class="btn compact">−</button><span id="photoZoomLabel">100%</span><button id="photoZoomIn" class="btn compact">+</button><button id="photoRotateLeft" class="btn compact">↶ 90°</button><button id="photoRotateRight" class="btn compact">↷ 90°</button><button id="photoFlipH" class="btn compact">Lật ngang</button><button id="photoFlipV" class="btn compact">Lật dọc</button></div><small>Kéo ảnh để đổi vị trí.</small></section>
+        <aside class="image-controls panel">
+          <label>Chế độ<select id="photoFit"><option value="cover">Phủ kín màn hình</option><option value="contain">Vừa toàn bộ ảnh</option></select></label>
+          <label>Phối điểm<select id="photoDither"><option value="floyd">Floyd–Steinberg</option><option value="ordered">Ordered 4×4</option><option value="threshold">Đen/trắng thuần</option></select></label>
+          <label>Độ sáng <output id="photoBrightnessValue">0</output><input id="photoBrightness" type="range" min="-100" max="100" value="0"></label>
+          <label>Tương phản <output id="photoContrastValue">120</output><input id="photoContrast" type="range" min="40" max="220" value="120"></label>
+          <label>Ngưỡng <output id="photoThresholdValue">145</output><input id="photoThreshold" type="range" min="40" max="220" value="145"></label>
+          <label>Độ nét <output id="photoSharpnessValue">35</output><input id="photoSharpness" type="range" min="0" max="100" value="35"></label>
+          <div class="stack-actions"><button id="photoAuto" class="btn">Tự tối ưu</button><button id="photoReset" class="btn">Đặt lại</button><button id="photoUpload" class="btn primary">Hiện ảnh trên đồng hồ</button></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="countdownView" class="view">
+      <section class="designer-intro panel"><div><span class="eyebrow">ĐẾM NGƯỢC TNVA</span><h2>Ngày đếm ngược</h2></div></section>
+      <div class="countdown-layout">
+        <form id="countdownForm" class="panel countdown-form">
+          <label>Chế độ<select id="countdownMode"><option value="default">Mặc định</option><option value="custom">Tùy chỉnh</option></select></label>
+          <label>Tiêu đề<input id="countdownTitle" maxlength="32" value="Sinh Nhật" required></label>
+          <label class="countdown-custom">Dòng dưới<input id="countdownSubtitle" maxlength="32" value="NGÀY - {H} GIỜ {M} PHÚT"></label>
+          <label>Ngày và giờ đích<input id="countdownTarget" type="datetime-local" required></label>
+          <label class="countdown-custom">Kiểu<select id="countdownStyle"><option value="clean">Trắng</option><option value="frame">Thanh tiêu đề</option></select></label>
+          <label class="countdown-custom">Cỡ số<select id="countdownSize"><option value="0">Nhỏ</option><option value="1" selected>Vừa</option><option value="2">Lớn</option></select></label>
+          <label class="countdown-custom"><input id="countdownShowTarget" type="checkbox" checked> Hiện ngày đích</label>
+          <button id="countdownUpload" class="btn primary" type="submit">Gửi vào đồng hồ</button>
+          <small>Đồng bộ giờ trước khi bắt đầu đếm.</small>
+        </form>
+        <section class="panel countdown-preview"><div class="screen-frame"><canvas id="countdownCanvas" width="212" height="104"></canvas></div><div id="countdownReadout" class="countdown-readout">-- ngày --:--</div></section>
+      </div>
+    </section>
+
+    <section id="deviceView" class="view hidden" aria-hidden="true"><button id="toggleHourBtn"></button></section>
+
+    <datalist id="localFontFamilies"><option value="Arial"><option value="Arial Narrow"><option value="Courier New"><option value="Segoe UI"><option value="Tahoma"><option value="Times New Roman"></datalist>
+</main>
+
+  <div id="toast" class="toast hidden"></div>
+  <div id="modalBackdrop" class="modal-backdrop hidden"><div id="modal" class="modal"></div></div>
+  <script type="module" src="assets/js/app.js?v=233"></script>
+</body>
+</html>

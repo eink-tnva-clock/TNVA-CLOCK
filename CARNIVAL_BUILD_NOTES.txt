@@ -1,0 +1,7 @@
+TNVA CLOCK Carnival Studio
+
+- Mọi mục thiết kế mở ngay cả khi chưa kết nối đồng hồ.
+- Chọn font cập nhật trực tiếp lên canvas và gói TNF1.
+- Kho có đúng 50 giao diện: 40 ngang, 10 dọc; cả 50 dùng 50 bố cục riêng.
+- Ảnh và đếm ngược dùng canvas 212 x 104, xuất 1-bit đúng kích thước thiết bị.
+- Pi chỉ phục vụ kho cộng đồng và bản cập nhật ký số.

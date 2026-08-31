@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Chẩn đoán font — TNVA</title>
+<link rel="stylesheet" href="assets/css/carnival.css">
+<style>
+  body { background:#111; color:#eee; font:14px/1.5 system-ui, sans-serif; padding:20px; }
+  h1 { font-size:18px; }
+  .row { display:flex; align-items:center; gap:14px; margin:14px 0; padding:10px; background:#1c1c1c; border-radius:8px; }
+  .row canvas { image-rendering:pixelated; background:#fff; border:1px solid #555; }
+  .label { min-width:230px; color:#9cf; }
+  .note { color:#999; font-size:12px; }
+  .big { transform: scale(6); transform-origin: top left; margin-right: 260px; margin-bottom: 60px; }
+  #banner { padding:12px; background:#432; border:1px solid #a52; border-radius:8px; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<h1>Trang chẩn đoán font — KHÔNG phụ thuộc cache của app chính</h1>
+<div id="banner">
+  Trang này import thẳng <code>device-fonts.js</code> hiện có trên đĩa (kèm cache-bust theo thời gian tải trang).
+  Nếu chữ dưới đây đúng mà app chính vẫn sai → lỗi nằm ở cache/trạng thái riêng của tab app chính, không phải code.
+  Nếu chữ dưới đây CŨNG sai → lỗi thật trong code, báo lại ảnh chụp trang này.
+</div>
+<div id="out"></div>
+<script type="module">
+  const bust = Date.now();
+  const mod = await import(`./assets/js/device-fonts.js?v=${bust}`);
+  const { drawBitmapText, drawScaledBitmapText, SFONT_MASTER_HEIGHT } = mod;
+
+  const out = document.getElementById('out');
+
+  function addRow(label, note, drawFn) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'label';
+    labelEl.innerHTML = `<b>${label}</b><br><span class="note">${note}</span>`;
+    const canvas = document.createElement('canvas');
+    canvas.width = 220; canvas.height = 30;
+    canvas.className = 'big';
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000';
+    drawFn(ctx);
+    row.appendChild(labelEl);
+    row.appendChild(canvas);
+    out.appendChild(row);
+  }
+
+  // Reference: raw unscaled glyph data straight from the table (no math at all).
+  addRow('drawBitmapText — "28C" — bảng small — KHÔNG scale (dữ liệu gốc)', 'Đây là dữ liệu glyph nguyên bản, không qua bất kỳ phép toán scale nào.',
+    ctx => drawBitmapText(ctx, 'small', 2, 2, '28C'));
+  addRow('drawBitmapText — "Thứ bảy" — bảng small — KHÔNG scale', '',
+    ctx => drawBitmapText(ctx, 'small', 2, 2, 'Thứ bảy'));
+  addRow('drawBitmapText — "Bính Ngọ" — bảng small — KHÔNG scale', '',
+    ctx => drawBitmapText(ctx, 'small', 2, 2, 'Bính Ngọ'));
+
+  // R25.12-hotfix (cụt chân chữ dưới 14px = SFONT_MASTER_HEIGHT): đúng
+  // kịch bản người dùng báo -- "28C" ở 14px (=master, không scale) đẹp,
+  // xuống 13px (downscale lần đầu) vỡ ngay. Quét đủ 7-14px để thấy rõ
+  // biên giới cũ (14 đẹp / 13 vỡ) đã biến mất sau khi sửa lấy mẫu căn
+  // giữa (drawScaledBitmapText(), device-fonts.js) -- hàm này ĐÃ VÁ, kết
+  // quả dưới đây phản ánh code hiện có trên đĩa (cache-bust ở đầu trang).
+  const tempSection = document.createElement('h1');
+  tempSection.textContent = '"28C" quét 7px→14px (bảng small, robotoCondensed) — trước đây vỡ ngay dưới 14px';
+  tempSection.style.marginTop = '30px';
+  out.parentElement.insertBefore(tempSection, out.nextSibling);
+  for (const size of [14, 13, 12, 11, 10, 9, 8, 7]) {
+    addRow(`drawScaledBitmapText — "28C" — bảng small — targetHeight=${size}${size === 14 ? ' (=master, không scale)' : ' (downscale)'}`, '',
+      ctx => drawScaledBitmapText(ctx, 'small', 2, 2, '28C', size, '#000', SFONT_MASTER_HEIGHT));
+  }
+
+  // What editor.js's dynamic branch ACTUALLY calls for these widgets.
+  for (const size of [10, 14, 18, 22]) {
+    addRow(`drawScaledBitmapText — "28C" — bảng small — targetHeight=${size}`, `Đúng đường editor.js dùng cho Nhiệt độ khi font ≠ dseg.`,
+      ctx => drawScaledBitmapText(ctx, 'small', 2, 2, '28C', size, '#000', SFONT_MASTER_HEIGHT));
+  }
+  for (const size of [10, 14, 18, 22]) {
+    addRow(`drawScaledBitmapText — "Thứ bảy" — bảng small — targetHeight=${size}`, '',
+      ctx => drawScaledBitmapText(ctx, 'small', 2, 2, 'Thứ bảy', size, '#000', SFONT_MASTER_HEIGHT));
+  }
+  for (const size of [10, 14, 18, 22]) {
+    addRow(`drawScaledBitmapText — "Bính Ngọ" — bảng small — targetHeight=${size}`, '',
+      ctx => drawScaledBitmapText(ctx, 'small', 2, 2, 'Bính Ngọ', size, '#000', SFONT_MASTER_HEIGHT));
+  }
+
+  // What happens if font WERE set to dseg (the leading suspect) -- shown for comparison.
+  addRow('drawScaledBitmapText — "28C" — bảng DSEG — targetHeight=14', 'Nếu widget Nhiệt độ đang chọn font "Số điện tử" (dseg) — bảng này thiếu chữ cái, dễ chồng chữ.',
+    ctx => drawScaledBitmapText(ctx, 'dseg', 2, 2, '28C', 14, '#000', SFONT_MASTER_HEIGHT));
+  addRow('drawScaledBitmapText — "Thứ bảy" — bảng DSEG — targetHeight=14', 'Nếu widget Thứ đang chọn font dseg — chữ cái sẽ bị bỏ qua, chồng lên nhau.',
+    ctx => drawScaledBitmapText(ctx, 'dseg', 2, 2, 'Thứ bảy', 14, '#000', SFONT_MASTER_HEIGHT));
+
+  document.getElementById('banner').innerHTML += `<br><small>Nạp lúc: ${new Date().toLocaleTimeString('vi-VN')} · cache-bust=${bust}</small>`;
+
+  // =====================================================================
+  // R25.12-hotfix (mất chân chữ dưới 14px): so sánh TRƯỚC/SAU bản vá
+  // baseline trong rasterizeGlyph() -- "trước" là bản sao TẠI CHỖ của
+  // đúng công thức cũ (baselineY = round(cellPx*0.78), không đổi gì
+  // khác), "sau" gọi thẳng rasterizeGlyph() thật đã vá trên đĩa.
+  // =====================================================================
+  const atlasMod = await import(`./assets/js/atlas-generator.js?v=${bust}`);
+  const { rasterizeGlyph, ATLAS_FONTS, FONT_FAMILY_CSS, DIGIT_EFFECT_DIRS } = atlasMod;
+
+  async function rasterizeGlyphOld(fontKey, ch, cellPx) {
+    const family = FONT_FAMILY_CSS[fontKey];
+    const px = Math.max(cellPx, 22);
+    await document.fonts.load(`400 ${Math.ceil(px)}px "${family}"`);
+    await document.fonts.ready;
+    const padX = Math.ceil(px * 0.6) + 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(4, Math.ceil(px * 1.6) + padX * 2);
+    canvas.height = cellPx;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = `400 ${px}px "${family}"`;
+    ctx.textBaseline = 'alphabetic';
+    const baselineY = Math.round(cellPx * 0.78); // <- công thức CŨ, cố ý giữ nguyên để so sánh
+    const originX = padX;
+    ctx.lineJoin = 'round'; ctx.lineWidth = 0.9; ctx.strokeStyle = '#000';
+    ctx.strokeText(ch, originX, baselineY);
+    ctx.fillStyle = '#000';
+    ctx.fillText(ch, originX, baselineY);
+    const advance = Math.max(1, Math.ceil(ctx.measureText(ch).width) + 1);
+    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = image.data;
+    const isBlack = (r,g,b) => (r+g+b)/3 < 160;
+    let minX = canvas.width, maxX = -1;
+    for (let y = 0; y < cellPx; y++) for (let x = 0; x < canvas.width; x++) {
+      const i = (y*canvas.width+x)*4;
+      if (isBlack(data[i],data[i+1],data[i+2])) { if (x<minX) minX=x; if (x>maxX) maxX=x; }
+    }
+    if (maxX < minX) return null;
+    const width = Math.min(255, maxX-minX+1);
+    const bytesPerCol = Math.ceil(cellPx/8);
+    const bitmap = new Uint8Array(width*bytesPerCol);
+    for (let col=0; col<width; col++) { const x=minX+col;
+      for (let row=0; row<cellPx; row++) { const i=(row*canvas.width+x)*4;
+        if (isBlack(data[i],data[i+1],data[i+2])) bitmap[col*bytesPerCol+(row>>3)] |= (0x80 >> (row&7));
+      } }
+    return { width, advance: Math.min(255, advance), bitmap };
+  }
+
+  // Vẽ ĐÚNG như firmware's atlas_draw_glyph() sẽ đọc (cột-trước, MSB-first)
+  // -- không phải chỉ vẽ lại canvas rasterize, mà giải mã lại từ output
+  // {width, advance, bitmap} y hệt máy thật.
+  function paintPackedString(ctx, x, y, cellPx, items) {
+    let cursor = x;
+    const bytesPerCol = Math.ceil(cellPx / 8);
+    for (const item of items) {
+      if (item) {
+        for (let col = 0; col < item.width; col++) {
+          for (let row = 0; row < cellPx; row++) {
+            if (item.bitmap[col*bytesPerCol + (row>>3)] & (0x80 >> (row&7))) ctx.fillRect(cursor+col, y+row, 1, 1);
+          }
+        }
+        cursor += item.advance;
+      } else cursor += Math.max(2, Math.round(cellPx*0.3));
+    }
+  }
+
+  const atlasSection = document.createElement('div');
+  atlasSection.innerHTML = `<h1 style="margin-top:40px">Mất chân chữ (descender) khi bake atlas cỡ nhỏ — TRƯỚC/SAU vá</h1>
+    <div class="note">Chuỗi test: "gypq 0189 LUNAR" -- đủ chân chữ (g,y,p,q), số dễ lộ méo (0,8,9), và "LUNAR" đúng như báo cáo. Mỗi hàng: TRÊN = công thức baseline CŨ (0.78 cố định), DƯỚI = ĐÃ VÁ (baseline theo font metrics thật). Phóng to ×6, nền trắng để dễ soi chân chữ có bị cắt không.</div>`;
+  document.body.appendChild(atlasSection);
+
+  const testString = 'gypq 0189 LUNAR';
+  const sizes = [8, 10, 12, 14, 16, 20, 22];
+  for (const fontKey of ATLAS_FONTS) {
+    for (const size of sizes) {
+      const wrap = document.createElement('div');
+      wrap.className = 'row';
+      wrap.style.flexDirection = 'column';
+      wrap.style.alignItems = 'flex-start';
+      wrap.innerHTML = `<div class="label" style="min-width:auto"><b>${fontKey}</b> — cellPx=${size}${size < 22 ? ' <span style="color:#f66">(dưới sàn 22px cũ)</span>' : ''}</div>`;
+
+      const oldCanvas = document.createElement('canvas');
+      oldCanvas.width = 260; oldCanvas.height = size + 6; oldCanvas.className = 'big'; oldCanvas.style.marginBottom = '4px';
+      const oldCtx = oldCanvas.getContext('2d');
+      oldCtx.fillStyle = '#fff'; oldCtx.fillRect(0,0,oldCanvas.width,oldCanvas.height); oldCtx.fillStyle = '#000';
+      const oldItems = [];
+      for (const ch of testString) oldItems.push(ch === ' ' ? null : await rasterizeGlyphOld(fontKey, ch, size));
+      paintPackedString(oldCtx, 2, 2, size, oldItems);
+
+      const newCanvas = document.createElement('canvas');
+      newCanvas.width = 260; newCanvas.height = size + 6; newCanvas.className = 'big'; newCanvas.style.marginBottom = '30px';
+      const newCtx = newCanvas.getContext('2d');
+      newCtx.fillStyle = '#fff'; newCtx.fillRect(0,0,newCanvas.width,newCanvas.height); newCtx.fillStyle = '#000';
+      const newItems = [];
+      for (const ch of testString) newItems.push(ch === ' ' ? null : await rasterizeGlyph(fontKey, ch, size, { mode: 'flat' }));
+      paintPackedString(newCtx, 2, 2, size, newItems);
+
+      wrap.appendChild(document.createTextNode('TRƯỚC (baseline 0.78 cố định):'));
+      wrap.appendChild(oldCanvas);
+      wrap.appendChild(document.createTextNode('SAU (baseline theo font metrics thật):'));
+      wrap.appendChild(newCanvas);
+      atlasSection.appendChild(wrap);
+    }
+  }
+</script>
+</body>
+</html>

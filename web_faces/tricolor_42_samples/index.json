@@ -1,0 +1,82 @@
+[
+  {
+    "file": "01-lịch-tháng-đầy-đủ.tnvaproject",
+    "title": "4.2 · Lịch tháng đầy đủ",
+    "width": 400,
+    "height": 300,
+    "elementCount": 9,
+    "redElements": 4,
+    "blackElements": 5,
+    "panelId": 2
+  },
+  {
+    "file": "02-bảng-thông-tin-nhiều-dòng.tnvaproject",
+    "title": "4.2 · Bảng thông tin nhiều dòng",
+    "width": 400,
+    "height": 300,
+    "elementCount": 11,
+    "redElements": 4,
+    "blackElements": 7,
+    "panelId": 2
+  },
+  {
+    "file": "03-khối-âm-lịch-chi-tiết.tnvaproject",
+    "title": "4.2 · Khối âm lịch chi tiết",
+    "width": 400,
+    "height": 300,
+    "elementCount": 7,
+    "redElements": 2,
+    "blackElements": 5,
+    "panelId": 2
+  },
+  {
+    "file": "04-lịch-tuần-mở-rộng.tnvaproject",
+    "title": "4.2 · Lịch tuần mở rộng",
+    "width": 400,
+    "height": 300,
+    "elementCount": 4,
+    "redElements": 1,
+    "blackElements": 3,
+    "panelId": 2
+  },
+  {
+    "file": "05-portrait-thông-tin.tnvaproject",
+    "title": "4.2 · Portrait thông tin",
+    "width": 300,
+    "height": 400,
+    "elementCount": 8,
+    "redElements": 3,
+    "blackElements": 5,
+    "panelId": 2
+  },
+  {
+    "file": "06-tối-giản-bauhaus.tnvaproject",
+    "title": "4.2 · Tối giản Bauhaus",
+    "width": 400,
+    "height": 300,
+    "elementCount": 3,
+    "redElements": 1,
+    "blackElements": 2,
+    "panelId": 2
+  },
+  {
+    "file": "07-bảng-điều-khiển-đầy-đủ.tnvaproject",
+    "title": "4.2 · Bảng điều khiển đầy đủ",
+    "width": 400,
+    "height": 300,
+    "elementCount": 12,
+    "redElements": 4,
+    "blackElements": 8,
+    "panelId": 2
+  },
+  {
+    "file": "08-đồng-hồ-kim-+-lịch.tnvaproject",
+    "title": "4.2 · Đồng hồ kim + lịch",
+    "width": 400,
+    "height": 300,
+    "elementCount": 8,
+    "redElements": 3,
+    "blackElements": 5,
+    "panelId": 2
+  }
+]
