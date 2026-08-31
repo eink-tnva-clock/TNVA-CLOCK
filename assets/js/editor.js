@@ -389,7 +389,7 @@ function defaultsFor(type, width, height) {
     x: 10, y: 10, w: 60, h: 18, visible: true,
     font: 'robotoCondensed', fontSize: 12, weight: 700, align: 'left',
     color: 'black', text: '', lineWidth: 1,
-    threshold: 150, contrast: 1.15, invert: false, dither: 'ordered',
+    threshold: 150, contrast: 1.15, invert: false, dither: 'ordered', brightness: 0,
     imageScale: 1, imageOffsetX: 0, imageOffsetY: 0, imageData: '',
     format: '', showSeconds: false, templateStyle: STYLE.text, digitEffect: 'normal', digitEffectDir: 'dr', inverse: false, calendarType: 0, legacy: null,
     locked: false, shapeKind: 'roundRect', radius: 6, fill: false
@@ -2191,6 +2191,7 @@ export class FaceEditor {
     const data = imageData.data;
     const contrast = Number(element.contrast || 1);
     const threshold = Number(element.threshold || 150);
+    const brightness = Number(element.brightness || 0);
     const invert = Boolean(element.invert);
     const width = imageData.width;
     const values = new Float32Array(width * imageData.height);
@@ -2201,7 +2202,7 @@ export class FaceEditor {
       const redPixel = red > 70 && red - green > 30 && red - blue > 25 && red > green * 1.12 && red > blue * 1.12;
       if (eligible) eligible[i] = planeFilter === 'red' ? Number(redPixel) : Number(!redPixel);
       let gray = .299 * data[offset] + .587 * data[offset + 1] + .114 * data[offset + 2];
-      gray = (gray - 128) * contrast + 128;
+      gray = (gray - 128) * contrast + 128 + brightness;
       if (invert) gray = 255 - gray;
       values[i] = clamp(gray, 0, 255);
       if (eligible && planeFilter === 'red' && eligible[i]) values[i] = 0;

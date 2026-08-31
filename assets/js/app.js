@@ -1472,6 +1472,7 @@ function renderInspector(element) {
     htmlEffects += field('Lệch X','imageOffsetX',element.imageOffsetX || 0,'number',{step:1}) + field('Lệch Y','imageOffsetY',element.imageOffsetY || 0,'number',{step:1});
     htmlEffects += field('Ngưỡng','threshold',element.threshold || 150,'range',{min:0,max:255,step:1,full:true});
     htmlEffects += field('Tương phản','contrast',element.contrast || 1.15,'range',{min:.3,max:3,step:.05,full:true});
+    htmlEffects += field('Độ sáng','brightness',element.brightness || 0,'range',{min:-100,max:100,step:1,full:true});
     htmlEffects += selectField('Phối điểm','dither',element.dither,[['ordered','Ordered 4×4'],['floyd','Floyd–Steinberg'],['none','Đen trắng thuần']],true);
     htmlEffects += toggleField('Đảo màu đen trắng','invert',Boolean(element.invert));
     htmlEffects += `<div class="full action-group"><button id="fitImageBtn" class="btn">Vừa khung</button><button id="fillImageBtn" class="btn">Phủ kín</button><button id="resetImageBtn" class="btn">Đặt lại</button></div>`;
@@ -1827,8 +1828,8 @@ async function openBitmapEditor(target = null) {
   $('#bitmapOk').onclick=async()=>{
     const out=document.createElement('canvas');out.width=width;out.height=height;const o=out.getContext('2d');o.fillStyle='#fff';o.fillRect(0,0,width,height);o.fillStyle='#000';for(let y=0;y<height;y++)for(let x=0;x<width;x++)if(pixels[y*width+x])o.fillRect(x,y,1,1);
     const dataUrl=out.toDataURL('image/png');
-    if(target?.type==='image') editor.updateSelected({imageData:dataUrl,sourceW:width,sourceH:height,w:Math.min(width,editor.project.width),h:Math.min(height,editor.project.height),imageScale:1,imageOffsetX:0,imageOffsetY:0,dither:'none',threshold:128,contrast:1});
-    else { const blob=await new Promise(resolve=>out.toBlob(resolve,'image/png')); const file=new File([blob],'bitmap.png',{type:'image/png'}); const el=await editor.addImage(file); editor.updateSelected({w:Math.min(width,editor.project.width),h:Math.min(height,editor.project.height),imageScale:1,dither:'none',threshold:128,contrast:1},false); }
+    if(target?.type==='image') editor.updateSelected({imageData:dataUrl,sourceW:width,sourceH:height,w:Math.min(width,editor.project.width),h:Math.min(height,editor.project.height),imageScale:1,imageOffsetX:0,imageOffsetY:0,dither:'none',threshold:128,contrast:1,brightness:0});
+    else { const blob=await new Promise(resolve=>out.toBlob(resolve,'image/png')); const file=new File([blob],'bitmap.png',{type:'image/png'}); const el=await editor.addImage(file); editor.updateSelected({w:Math.min(width,editor.project.width),h:Math.min(height,editor.project.height),imageScale:1,dither:'none',threshold:128,contrast:1,brightness:0},false); }
     closeModal(); toast('Đã thêm ảnh pixel','success');
   };
 }
