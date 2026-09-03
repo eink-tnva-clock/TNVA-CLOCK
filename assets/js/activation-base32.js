@@ -1,6 +1,6 @@
-/* R25.10: JS mirror of pi_server/activation_codes.py's ALPHABET -- must
- * stay byte-for-byte identical (used to decode tnva_activation_cli.py's
- * long fallback code, see activation.js's decodeCliActivationCode()). Not
+/* JS mirror of tools/tnva-sign/activation_signing.py's ALPHABET -- must
+ * stay byte-for-byte identical (used to decode the code from
+ * sign_activation.py, see activation.js's redeemCliActivationCode()). Not
  * a Crockford/RFC4648 variant, this project's own table (32 symbols,
  * excludes 0/O/1/I to avoid misreads when read aloud or handwritten). */
 export const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

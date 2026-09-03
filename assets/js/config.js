@@ -1,63 +1,3 @@
-export const SERVICE = {
-  // Điền địa chỉ HTTPS khi phát hành web. Có thể tạm truyền ?service=http://192.168.1.200:8080 khi thử nội bộ.
-  apiBase: ''
-};
-
-export function normalizeServiceUrl(rawValue) {
-  const text = String(rawValue || '').trim();
-  if (!text) return '';
-  const url = new URL(text);
-  url.hash = '';
-  url.search = '';
-  const path = url.pathname.replace(/\/+$/, '');
-  if (/\/admin$/i.test(path)) url.pathname = path.slice(0, -6) || '/';
-  else if (/\/api\/health$/i.test(path)) url.pathname = path.slice(0, -11) || '/';
-  else url.pathname = path || '/';
-  return url.toString().replace(/\/+$/, '');
-}
-
-function isPrivateIpv4(hostname) {
-  const parts = hostname.split('.').map(Number);
-  if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  return parts[0] === 10 ||
-    parts[0] === 127 ||
-    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-    (parts[0] === 192 && parts[1] === 168);
-}
-
-export function isLocalServiceUrl(value) {
-  const url = value instanceof URL ? value : new URL(value);
-  const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  return url.protocol === 'http:' && (
-    hostname === 'localhost' || hostname === '::1' || hostname.endsWith('.local') ||
-    hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80:') ||
-    isPrivateIpv4(hostname)
-  );
-}
-
-export function serviceApiBase({ required = true } = {}) {
-  const params = new URLSearchParams(location.search);
-  const queryValue = params.get('service') || params.get('api') || '';
-  const rawValue = queryValue || localStorage.getItem('tnvaServiceApi') || SERVICE.apiBase || '';
-  if (!rawValue.trim()) {
-    if (required) throw new Error('Dịch vụ TNVA chưa được cấu hình');
-    return '';
-  }
-  let value;
-  let parsed;
-  try {
-    value = normalizeServiceUrl(rawValue);
-    parsed = new URL(value);
-  } catch {
-    throw new Error('Địa chỉ dịch vụ TNVA không hợp lệ');
-  }
-  if (location.protocol === 'https:' && parsed.protocol === 'http:' && !isLocalServiceUrl(parsed)) {
-    throw new Error('Trang HTTPS chỉ kết nối được với dịch vụ HTTPS');
-  }
-  localStorage.setItem('tnvaServiceApi', value);
-  return value;
-}
-
 /*
  * R25.13 Bước 2: định nghĩa panel chuyển hẳn sang panel_profiles.js (nguồn
  * duy nhất, đọc từ firmware thật -- xem REPORTS/PANEL_AUDIT.md). DEVICE.profiles
@@ -72,3 +12,42 @@ export const DEVICE = {
   characteristic: 0xff01,
   profiles: PANEL_PROFILES,
 };
+
+/*
+ * ==== FEATURE FLAGS ====
+ * Nguồn DUY NHẤT cho các cờ ẩn/hiện UI Studio -- mọi nơi khác import từ đây,
+ * không hard-code true/false rải rác. Đổi false -> true để bật lại, không
+ * xoá code phía dùng cờ.
+ */
+export const FEATURES = {
+  // Cho phép người dùng tự chọn file .bin (+ .ota-sig.bin) từ máy để OTA.
+  // false = ẩn hoàn toàn, chỉ cập nhật qua kênh GitHub chính thức (xem
+  // OTA_GITHUB_CHANNEL bên dưới). Không đụng ble.updateFirmware() -- vẫn là
+  // đường truyền dùng chung cho cả hai luồng.
+  OTA_MANUAL_FILE: false,
+
+  // Kênh firmware chính thức đọc manifest.json từ GitHub (FW_MANIFEST_URL/
+  // FW_BASE_URL bên dưới).
+  OTA_GITHUB_CHANNEL: true,
+
+  // Panel 4.2" BWR (400x300/300x400) -- có sẵn trong PANEL_PROFILES và đã
+  // chạy được (xem panel_profiles.js), nhưng CHƯA công bố ra ngoài. false =
+  // ẩn toàn bộ UI liên quan (bộ chọn panel, thư viện face, nút "Mẫu 4.2",
+  // kênh firmware panel 420). KHÔNG xoá entry khỏi PANEL_PROFILES.
+  PANEL_420: false,
+};
+
+/*
+ * Kênh firmware chính thức: manifest.json trên raw.githubusercontent.com
+ * (KHÔNG dùng GitHub Releases API -- API không đăng nhập giới hạn 60
+ * request/giờ/IP, còn raw.githubusercontent.com CORS mở, không giới hạn
+ * kiểu đó, và tải .bin trực tiếp được từ browser). Điền <OWNER>/<REPO> thật
+ * trước khi bật OTA_GITHUB_CHANNEL trong sản xuất.
+ */
+export const FW_MANIFEST_URL =
+  'https://raw.githubusercontent.com/<OWNER>/<REPO>/main/firmware/manifest.json';
+export const FW_BASE_URL =
+  'https://raw.githubusercontent.com/<OWNER>/<REPO>/main/firmware/';
+if (FW_MANIFEST_URL.includes('<OWNER>') || FW_MANIFEST_URL.includes('<REPO>')) {
+  console.warn('[TNVA] FW_MANIFEST_URL/FW_BASE_URL trong config.js chưa được điền OWNER/REPO thật -- kênh Firmware sẽ không tải được manifest.');
+}

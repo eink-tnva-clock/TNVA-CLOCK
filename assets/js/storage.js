@@ -55,13 +55,3 @@ export async function listProjects() {
 }
 export const deleteProject = id => withStore(PROJECTS, 'readwrite', store => store.delete(id));
 export const clearProjects = () => withStore(PROJECTS, 'readwrite', store => store.clear());
-
-export async function saveCommunitySubmission(record) {
-  const data = { ...record, updatedAt: new Date().toISOString() };
-  await withStore(SUBMISSIONS, 'readwrite', store => store.put(data));
-  return data;
-}
-export async function listCommunitySubmissions() {
-  const rows = await withStore(SUBMISSIONS, 'readonly', store => store.getAll());
-  return rows.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-}

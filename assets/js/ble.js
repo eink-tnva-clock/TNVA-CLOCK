@@ -1,4 +1,4 @@
-import { DEVICE } from './config.js';
+import { DEVICE, FEATURES } from './config.js';
 import { normalizeCrisp213Package } from './text-size-policy.js';
 import { PANEL_PROFILES } from './panel_profiles.js';
 import { decodeTn42Package, TN42_MAX_PACKAGE_BYTES } from './tn42-encoder.js';
@@ -283,13 +283,22 @@ export class TnvaBle {
       optionalServices: [DEVICE.service]
     });
     if (!device.name?.startsWith(DEVICE.namePrefix)) throw new Error('Sai thiết bị');
+    /* R26.1 (Task 3): panel thật được xác nhận qua DEVICE_INFO SAU khi
+     * connect (readDeviceInfo() bên dưới), không qua tên quảng bá -- guard
+     * này chỉ chặn SỚM nếu firmware 4.2" advertise tên "TNVA-CLOCK-42..."
+     * (chưa rõ có dùng quy ước này không). Vô hại nếu không có thiết bị nào
+     * dùng tên đó -- điều kiện không bao giờ khớp. */
+    if (!FEATURES.PANEL_420 && device.name.startsWith(`${DEVICE.namePrefix}-42`)) {
+      throw new Error('Thiết bị 4.2" chưa được hỗ trợ trong phiên bản này');
+    }
     return this.attach(device);
   }
 
   async reconnectGranted() {
     if (!navigator.bluetooth?.getDevices) return null;
     const devices = await navigator.bluetooth.getDevices();
-    const device = devices.find(item => item.name?.startsWith(DEVICE.namePrefix));
+    const device = devices.find(item => item.name?.startsWith(DEVICE.namePrefix)
+      && (FEATURES.PANEL_420 || !item.name.startsWith(`${DEVICE.namePrefix}-42`)));
     if (!device) return null;
     return this.attach(device);
   }
@@ -444,6 +453,20 @@ export class TnvaBle {
         queueState: rawTime.getUint8(62),
         epdWaitState: rawTime.getUint8(63),
         heapProbe: rawTime.getUint8(64),
+      } : null,
+      /* R26: Auto Rotate playlist read-side -- appended to FF01 the same
+       * way the R25.11 diag block above was, instead of a new BLE
+       * round-trip (docs/AUTO_ROTATE_TNVA.md). items[] entries are face_id
+       * (0..5 = mặt mặc định, 6 = mặt custom/Kho giao diện đang nằm trong
+       * slot hiện có); mục không dùng (index >= itemCount) đọc về 0xFF.
+       * elapsedMinutes lets the UI compute "đổi tiếp sau" locally, ticking
+       * every second on the web only -- it is not re-polled that often. */
+      autoRotate: rawTime.byteLength >= 78 ? {
+        enabled: rawTime.getUint8(65) !== 0,
+        intervalMinutes: rawTime.getUint16(66, true),
+        itemCount: rawTime.getUint8(68),
+        items: Array.from(bytes.slice(69, 76)),
+        elapsedMinutes: rawTime.getUint16(76, true),
       } : null
     };
     let voltage = null;
@@ -566,6 +589,38 @@ export class TnvaBle {
     await this.writeAcked(packet, 0x98, 0);
     this.log('Đã kích hoạt thiết bị', {operation:'activation', step:'submit', result:'ok'});
     this.deviceActivated = true;
+    return this.readStatus(operationToken);
+  }
+
+  /* R26: SET_AUTO_ROTATE_CONFIG (0xB0). Fixed 12-byte payload, no chunking
+   * -- Phase-1 scope playlist (6 mặt mặc định + 1 slot custom hiện có,
+   * xem docs/AUTO_ROTATE_TNVA.md) fits in one write. Only called when the
+   * user presses "Lưu" (mục L: không sync liên tục). `config.items` is an
+   * ORDERED array of face_id (0..6, 6 = mặt custom); duplicates are
+   * rejected client-side by the UI that builds this array, not here. */
+  async setAutoRotateConfig(config) {
+    return this.runExclusive('set-auto-rotate', token => this.setAutoRotateConfigUnlocked(config, token));
+  }
+
+  async setAutoRotateConfigUnlocked(config, operationToken) {
+    if (!this.connected) throw new Error('Chưa kết nối');
+    const items = Array.isArray(config.items) ? config.items.slice(0, 7) : [];
+    if (items.some(id => !Number.isInteger(id) || id < 0 || id > 6)) {
+      throw new Error('Danh sách giao diện tự động không hợp lệ');
+    }
+    const interval = Math.round(Number(config.intervalMinutes) || 0);
+    if (interval < 1 || interval > 1440) {
+      throw new Error('Chu kỳ đổi giao diện phải trong khoảng 1-1440 phút');
+    }
+    const packet = new Uint8Array(12);
+    packet[0] = 0xB0;
+    packet[1] = config.enabled ? 1 : 0;
+    packet[2] = interval & 0xff;
+    packet[3] = (interval >> 8) & 0xff;
+    packet[4] = items.length;
+    for (let i = 0; i < items.length; i++) packet[5 + i] = items[i];
+    await this.writeAcked(packet, 0xB0, 0);
+    this.log('Đã lưu cấu hình tự động đổi giao diện', {operation:'auto-rotate', step:'save', result:'ok'});
     return this.readStatus(operationToken);
   }
 

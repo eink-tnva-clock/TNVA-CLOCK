@@ -145,6 +145,34 @@
 .tet-decor-size-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.tet-decor-size-row button{border:1px solid #35516f;background:#12233a;color:#f4f7fb;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px}
 .tet-decor-size-row button:hover:not(:disabled){border-color:#35c8e2;background:#123047}.tet-decor-size-row button:disabled{opacity:.55}
 @media(max-width:760px){.tet-decor-grid{grid-template-columns:1fr}}
+
+/* R26 (Auto Rotate -- tự động đổi giao diện, không nhầm với R26 thư viện
+ * mẫu 4.2 ở trên): panel "TỰ ĐỘNG ĐỔI GIAO DIỆN" trong homeView, ngay dưới
+ * lưới 6 mặt tích hợp. */
+.auto-rotate-panel{padding:18px;display:grid;gap:16px}
+.auto-rotate-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.switch-row{display:flex;align-items:center;gap:9px;font-weight:800;cursor:pointer}
+.switch-row input{width:18px;height:18px;accent-color:var(--accent)}
+.auto-rotate-countdown{color:var(--accent2);font-weight:800}
+.auto-rotate-interval{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--muted)}
+.auto-rotate-interval label{display:flex;align-items:center;gap:6px;color:var(--muted);font-weight:600}
+.auto-rotate-interval input[type=number]{width:80px;border:1px solid #324963;background:#091421;color:#f3f6fb;border-radius:10px;padding:8px 10px}
+.auto-rotate-interval .segmented button{padding:8px 11px}
+.auto-rotate-interval .segmented button.active{border-color:var(--accent);color:var(--accent2);background:#1c1608}
+.auto-rotate-items{display:grid;gap:8px}
+.auto-rotate-item-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.auto-rotate-item-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid #2c405a;border-radius:11px;background:#0a1523}
+.auto-rotate-item-row.included{border-color:var(--accent)}
+.auto-rotate-item-row.unavailable{opacity:.55}
+.auto-rotate-item-row label{display:flex;align-items:center;gap:9px;font-weight:700;cursor:pointer}
+.auto-rotate-item-row label i{font-style:normal;color:var(--muted);font-weight:600}
+.auto-rotate-item-row input{width:17px;height:17px;accent-color:var(--accent)}
+.auto-rotate-item-actions{display:flex;gap:6px}
+.auto-rotate-item-actions button{border:1px solid #334a67;background:#101e31;color:#fff;border-radius:8px;padding:5px 9px;cursor:pointer;font-weight:900}
+.auto-rotate-item-actions button:disabled{opacity:.35;cursor:not-allowed}
+.auto-rotate-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#autoRotateStatus{color:var(--green)}
+@media(max-width:760px){.auto-rotate-interval,.auto-rotate-head{align-items:flex-start;flex-direction:column}}
 @media(max-width:760px){.sample-picker-grid{grid-template-columns:1fr}.modal-backdrop:has(.sample-picker){align-items:end;padding:7px}.modal:has(.sample-picker){max-height:92vh;background:#f7fbfd;color:#1d2228}.sample-card{background:#fff;color:#202329;border-color:#cfdee5}.sample-card span,.sample-card small{color:#667985}.pro-workspace-bar #snapBtn{display:inline-block}.pro-workspace-bar #planePreview{max-width:132px;background:#fff;color:#222;border-color:#dfd3a6}}
 @media(max-width:900px){
   .designer-screen-card{

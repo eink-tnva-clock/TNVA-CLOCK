@@ -8,7 +8,7 @@
   <meta name="google" content="notranslate">
   <title>TNVA CLOCK Studio</title>
   <link rel="stylesheet" href="assets/css/app.css?v=233">
-  <link rel="stylesheet" href="assets/css/carnival.css?v=231">
+  <link rel="stylesheet" href="assets/css/carnival.css?v=232">
 </head>
 <body data-theme="carnival">
   <section id="connectGate" class="gate hidden" aria-hidden="true">
@@ -22,10 +22,10 @@
   <main id="appShell" class="app-shell">
     <header class="topbar carnival-masthead">
       <div class="carnival-brand">
-        <div id="brandTapTarget" class="carnival-wordmark" aria-label="TNVA CLOCK"><span>TNVA</span><em>CLOCK</em></div>
+        <div class="carnival-wordmark" aria-label="TNVA CLOCK"><span>TNVA</span><em>CLOCK</em></div>
         <div class="brand-inline-copy">
           <strong>TNVA CLOCK · Carnival Studio</strong>
-          <small>E‑ink 2.13" · 4.2" 3 màu</small>
+          <small>E‑ink 2.13"<span id="panel420Tagline"> · 4.2" 3 màu</span></small>
         </div>
       </div>
 
@@ -34,10 +34,6 @@
           <summary><span class="activity-dot"></span><span id="liveActivity">Sẵn sàng</span><span id="logCount">0</span></summary>
           <div class="log-head"><strong>Nhật ký hoạt động</strong><select id="logSeverityFilter"><option value="all">Tất cả</option><option value="error">Lỗi</option><option value="warn">Cảnh báo</option><option value="ok">OK</option></select><div><button id="copyLogBtn">Sao chép</button><button id="downloadLogTxtBtn">Tải nhật ký (gửi cho hỗ trợ)</button><button id="downloadLogJsonBtn">JSON</button><button id="clearLogBtn">Xóa</button></div></div>
           <div id="logWindow"></div>
-        </details>
-        <details class="service-settings" id="adminServicePanel">
-          <summary>Máy chủ Pi</summary>
-          <div><input id="serviceServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.201:8080" autocomplete="url" spellcheck="false"><button id="saveServiceUrlBtn" class="btn compact" type="button">Lưu</button></div>
         </details>
         <!-- R25.10 (mục 4): panel chỉ hiện khi chip THẬT báo chưa kích
              hoạt (cờ FF01, không phải cache trình duyệt) -- ẩn hẳn (không
@@ -51,20 +47,17 @@
               <code id="activationDeviceId" style="flex:1">--</code>
               <button id="activationCopyDeviceIdBtn" class="btn compact" type="button" disabled>Sao chép</button>
             </div>
-            <input id="activationRequestNote" placeholder="Ghi chú (tuỳ chọn)">
-            <button id="activationRequestBtn" class="btn compact" type="button">Gửi yêu cầu kích hoạt</button>
-            <p id="activationRequestResult" class="prop-help"></p>
-            <button id="activationCheckBtn" class="btn primary compact hidden" type="button">Đã được duyệt -- Kích hoạt ngay</button>
+            <p class="prop-help">Gửi mã thiết bị ở trên cho người bán qua Zalo để nhận mã kích hoạt, rồi dán mã nhận được vào ô bên dưới.</p>
             <!-- Lệnh Studio (mục E3, 2026-08-26): link thật, mở tab mới,
                  trên điện thoại hệ điều hành tự nhận diện zalo.me và mở
                  thẳng app Zalo vào đúng chat -- không cần xử lý gì thêm ở
                  đây, đó là hành vi mặc định của link zalo.me. -->
             <a class="btn primary" href="https://zalo.me/0349816027" target="_blank" rel="noopener">Liên hệ kích hoạt qua Zalo</a>
-            <details>
-              <summary class="mini">Tôi có mã từ CLI (khi máy chủ Pi đang bảo trì)</summary>
-              <textarea id="activationCliCode" rows="3" placeholder="Dán mã dài do quản trị gửi qua Zalo"></textarea>
-              <button id="activationCliApplyBtn" class="btn compact" type="button">Áp dụng mã</button>
-            </details>
+            <textarea id="activationCliCode" rows="3" placeholder="Dán mã kích hoạt nhận được qua Zalo vào đây"></textarea>
+            <div class="row" style="display:flex;gap:8px">
+              <button id="activationPasteBtn" class="btn compact" type="button">Dán từ clipboard</button>
+              <button id="activationCliApplyBtn" class="btn primary compact" type="button">Áp dụng mã</button>
+            </div>
           </div>
         </details>
         <details class="service-settings" id="clockCorrectionPanel">
@@ -75,15 +68,6 @@
             <select id="clockCorrectionUnit"><option value="1">giây</option><option value="60">phút</option></select>
             <button id="clockCorrectionSaveBtn" class="btn compact" type="button">Lưu</button>
           </div>
-        </details>
-        <!-- R25.10 (mục 6v): công tắc mặc định tắt, hiện giải thích 1 lần
-             trước khi bật (xem #telemetryExplainModal ở cuối trang) -- nút
-             gửi thủ công luôn hiện bất kể công tắc. -->
-        <details class="service-settings" id="telemetryPanel">
-          <summary>Gửi báo cáo lỗi<span id="telemetryBadge" class="hidden"> · đang bật</span></summary>
-          <p class="prop-help">Chỉ gửi 6 loại lỗi nghiêm trọng (mất BLE bất thường, ghi flash lỗi, cập nhật phần mềm lỗi, giao diện bị từ chối, lỗi atlas, lỗi phần mềm web) -- không gửi thao tác thường ngày, không gửi nội dung giao diện hay ảnh bạn tự thiết kế.</p>
-          <label class="checkbox-row"><input id="telemetryToggle" type="checkbox"><span>Tự động gửi báo cáo lỗi</span></label>
-          <button id="telemetrySendNowBtn" class="btn compact" type="button">Gửi báo cáo thủ công ngay</button>
         </details>
         <div class="device-actions">
           <div class="device-pill"><span class="status-dot"></span><span id="deviceLabel">Chưa kết nối</span></div>
@@ -100,6 +84,9 @@
       <button class="tab" data-view="designer"><span>✦</span>Thiết kế</button>
       <button class="tab" data-view="image"><span>▧</span>Ảnh</button>
       <button class="tab" data-view="countdown"><span>◷</span>Đếm ngược</button>
+      <!-- FEATURES.OTA_GITHUB_CHANNEL (weble/assets/js/config.js) -- app.js ẩn
+           cả nút tab lẫn #firmwareView khi tắt. -->
+      <button id="firmwareTabBtn" class="tab" data-view="firmware"><span>⇪</span>Firmware</button>
     </nav>
 
     <section id="mainView" class="view active">
@@ -122,9 +109,21 @@
         <article class="device-card panel"><span>Thời gian</span><strong id="deviceTime">--</strong></article>
       </section>
 
-      <section id="firmwareUpdatePanel" class="firmware-update panel hidden">
-        <div><span class="eyebrow">CẬP NHẬT PHẦN MỀM</span><h2 id="firmwareUpdateTitle">Kiểm tra bản cập nhật</h2><p id="firmwareUpdateNotes">Cập nhật qua Bluetooth.</p></div>
-        <div class="firmware-actions"><button id="checkFirmwareBtn" class="btn">Kiểm tra</button><button id="installFirmwareBtn" class="btn primary hidden">Cập nhật qua Bluetooth</button><button id="cancelFirmwareBtn" class="btn hidden">Huỷ</button><div id="firmwareProgress" class="progress hidden"><span></span><small id="firmwareProgressText">0%</small></div></div>
+      <!-- FEATURES.OTA_MANUAL_FILE (weble/assets/js/config.js): khi false, app.js
+           không đăng ký listener cho #firmwareBinFile/#firmwareSigFile/
+           #installFirmwareBtn/#cancelFirmwareBtn và không bỏ .hidden ra khỏi
+           section này lúc kết nối -- xem app.js's openConnectedApp(). Section
+           này (#firmwareUpdatePanel) LÀ khối "ota-manual-block": toàn bộ nó
+           chỉ phục vụ chọn-file-thủ-công, không có phần nào khác dùng chung. -->
+      <section id="firmwareUpdatePanel" data-flag="OTA_MANUAL_FILE" class="firmware-update panel hidden ota-manual-block">
+        <div><span class="eyebrow">CẬP NHẬT PHẦN MỀM</span><h2>Cập nhật qua Bluetooth</h2><p class="prop-help">Chọn file phần mềm (.bin) và file chữ ký (.ota-sig.bin, cùng thư mục -- xem tools/ota-sign/sign_ota.py), rồi bấm Cập nhật.</p></div>
+        <div class="firmware-actions">
+          <input id="firmwareBinFile" type="file" accept=".bin">
+          <input id="firmwareSigFile" type="file" accept=".bin">
+          <button id="installFirmwareBtn" class="btn primary" disabled>Cập nhật qua Bluetooth</button>
+          <button id="cancelFirmwareBtn" class="btn hidden">Huỷ</button>
+          <div id="firmwareProgress" class="progress hidden"><span></span><small id="firmwareProgressText">0%</small></div>
+        </div>
       </section>
 
       <div class="section-title"><div><span class="eyebrow">MẶT TÍCH HỢP</span><h2>6 mặt tích hợp</h2></div></div>
@@ -136,20 +135,48 @@
         <article class="face-card panel" data-face-card="4"><div class="face-preview"><img src="previews/face-outline-minimal.png?v=27" alt="Lịch âm chi tiết"></div><div class="face-copy"><div><b>Lịch âm chi tiết</b><small>Lịch tháng đầy đủ, Can Chi, tiết khí sắp tới</small></div><span>05</span></div><button class="btn primary apply-face" data-face="4" disabled>Áp dụng</button></article>
         <article class="face-card panel active-face" data-face-card="5"><div class="face-preview portrait"><img src="previews/face-viet-calendar.png?v=25" alt="Sự kiện sắp tới"></div><div class="face-copy"><div><b>Sự kiện sắp tới</b><small>Đếm ngày đến các dịp lễ</small></div><span>06</span></div><button class="btn primary apply-face" data-face="5" disabled>Áp dụng</button></article>
       </section>
+
+      <div class="section-title"><div><span class="eyebrow">TỰ ĐỘNG</span><h2>Tự động đổi giao diện</h2></div></div>
+      <section id="autoRotatePanel" class="panel auto-rotate-panel hidden">
+        <div class="auto-rotate-head">
+          <label class="switch-row"><input type="checkbox" id="autoRotateEnabled"><span>Bật tự động đổi giao diện</span></label>
+          <div id="autoRotateCountdown" class="auto-rotate-countdown" hidden>Đổi tiếp sau: <b id="autoRotateCountdownValue">--:--</b></div>
+        </div>
+        <div class="auto-rotate-interval">
+          <span>Đổi sau mỗi:</span>
+          <div id="autoRotateIntervalPresets" class="segmented">
+            <button type="button" data-minutes="1">1 phút</button>
+            <button type="button" data-minutes="2">2 phút</button>
+            <button type="button" data-minutes="5">5 phút</button>
+            <button type="button" data-minutes="10">10 phút</button>
+            <button type="button" data-minutes="15">15 phút</button>
+            <button type="button" data-minutes="30">30 phút</button>
+            <button type="button" data-minutes="60">60 phút</button>
+          </div>
+          <label>Tuỳ chỉnh: <input type="number" id="autoRotateIntervalInput" min="1" max="1440" value="10"> phút (1-1440)</label>
+        </div>
+        <div class="auto-rotate-items">
+          <span class="eyebrow">Giao diện tham gia (tích chọn, ↑↓ để sắp thứ tự)</span>
+          <ol id="autoRotateItemList" class="auto-rotate-item-list"></ol>
+          <p class="prop-help">Chỉ hỗ trợ 6 mặt tích hợp + đúng 1 giao diện tuỳ chỉnh (lấy từ Kho giao diện hoặc ảnh khách tự tải) đang có sẵn trên máy -- chip nhớ 256KB của board 2.13" không còn chỗ lưu nhiều ảnh tuỳ chỉnh cùng lúc (xem <code>docs/AUTO_ROTATE_TNVA.md</code>). Muốn đổi ảnh tuỳ chỉnh đang xoay vòng: áp dụng/tải ảnh mới như bình thường ở mục Kho giao diện hoặc Xưởng thiết kế, nó sẽ thay thế ảnh cũ trong danh sách này.</p>
+        </div>
+        <div class="auto-rotate-actions">
+          <button id="autoRotateSaveBtn" class="btn primary" disabled>Lưu tự động đổi giao diện</button>
+          <span id="autoRotateStatus" class="prop-help"></span>
+        </div>
+      </section>
     </section>
 
     <section id="libraryView" class="view">
       <section class="library-toolbar panel">
-        <div><span class="eyebrow">KHO TNVA</span><h2>Kho giao diện</h2><small>Giao diện cộng đồng và giao diện đã lưu</small></div>
+        <div><span class="eyebrow">KHO TNVA</span><h2>Kho giao diện</h2><small>Giao diện có sẵn và giao diện đã lưu</small></div>
         <div class="segmented library-segments" role="tablist" aria-label="Nguồn giao diện">
           <button class="library-tab active" data-library="warehouse">Kho có sẵn</button>
-          <button class="library-tab" data-library="public">Cộng đồng</button>
           <button class="library-tab" data-library="local">Đã lưu</button>
         </div>
         <div class="library-actions"><input id="librarySearch" type="search" placeholder="Tìm tên hoặc tác giả"><select id="libraryOrientationFilter"><option value="auto">Khớp hướng đang thiết kế</option><option value="landscape">Ngang</option><option value="portrait">Dọc</option><option value="all">Cả hai</option></select></div>
       </section>
       <div id="localLibrary" class="card-grid hidden"></div>
-      <div id="publicLibrary" class="card-grid hidden"></div>
       <div id="warehouseLibrary" class="card-grid"></div>
     </section>
 
@@ -251,7 +278,7 @@
         </div>
       </aside>
 
-      <div class="bottom-actions panel pro-bottom-actions"><div class="file-name-group"><input id="designTitle" value="Giao diện mới" placeholder="Tên giao diện"><input id="designAuthor" placeholder="Tác giả"></div><div class="action-group"><button id="newDesignBtn" class="btn">Tạo mới</button><button id="saveLocalBtn" class="btn">Lưu</button><button id="downloadBtn" class="btn">Xuất gói</button><button id="publishBtn" class="btn">Đăng kho</button><button id="installBtn" class="btn primary">Gửi vào đồng hồ</button></div><input id="projectFileInput" type="file" accept=".tnvaproject,.tnvaface,.eink,.json,application/json" hidden></div>
+      <div class="bottom-actions panel pro-bottom-actions"><div class="file-name-group"><input id="designTitle" value="Giao diện mới" placeholder="Tên giao diện"><input id="designAuthor" placeholder="Tác giả"></div><div class="action-group"><button id="newDesignBtn" class="btn">Tạo mới</button><button id="saveLocalBtn" class="btn">Lưu</button><button id="downloadBtn" class="btn">Xuất gói</button><button id="installBtn" class="btn primary">Gửi vào đồng hồ</button></div><input id="projectFileInput" type="file" accept=".tnvaproject,.tnvaface,.eink,.json,application/json" hidden></div>
       <div class="image-fit-actions hidden"><button id="fitImageBtn"></button><button id="fillImageBtn"></button><button id="resetImageBtn"></button></div>
     </section>
 
@@ -289,6 +316,33 @@
       </div>
     </section>
 
+    <!-- FEATURES.OTA_GITHUB_CHANNEL (weble/assets/js/config.js): khi false, app.js
+         ẩn cả #firmwareTabBtn lẫn section này, không đăng ký listener nào bên
+         trong. Đây là kênh cập nhật CHÍNH THỨC đọc manifest.json từ GitHub
+         (raw.githubusercontent.com) -- khác hẳn #firmwareUpdatePanel (chọn
+         file thủ công, FEATURES.OTA_MANUAL_FILE) ở mainView, nhưng cả hai
+         cùng gọi app.js's runFirmwareUpdate() để truyền file (xem Task 1). -->
+    <section id="firmwareView" class="view">
+      <section class="designer-intro panel"><div><span class="eyebrow">CẬP NHẬT TNVA</span><h2>Firmware</h2></div></section>
+      <section class="panel firmware-channel">
+        <div class="device-grid">
+          <article class="device-card panel"><span>Phiên bản trên đồng hồ</span><strong id="fwCurrentVersion">Chưa kết nối</strong></article>
+          <article class="device-card panel"><span>Phiên bản mới nhất</span><strong id="fwLatestVersion">--</strong></article>
+        </div>
+        <div id="fwConnectRow" class="firmware-actions hidden">
+          <button id="fwConnectBtn" class="btn primary">Kết nối đồng hồ</button>
+        </div>
+        <p id="fwChangelog" class="prop-help hidden"></p>
+        <p id="fwStatusText" class="prop-help"></p>
+        <div class="firmware-actions">
+          <button id="fwRetryBtn" class="btn hidden">Thử lại</button>
+          <button id="fwUpdateBtn" class="btn primary hidden">Cập nhật firmware</button>
+          <button id="fwCancelBtn" class="btn hidden">Huỷ</button>
+          <div id="fwProgress" class="progress hidden"><span></span><small id="fwProgressText">0%</small></div>
+        </div>
+      </section>
+    </section>
+
     <section id="deviceView" class="view hidden" aria-hidden="true"><button id="toggleHourBtn"></button></section>
 
     <datalist id="localFontFamilies"><option value="Arial"><option value="Arial Narrow"><option value="Courier New"><option value="Segoe UI"><option value="Tahoma"><option value="Times New Roman"></datalist>
@@ -296,6 +350,6 @@
 
   <div id="toast" class="toast hidden"></div>
   <div id="modalBackdrop" class="modal-backdrop hidden"><div id="modal" class="modal"></div></div>
-  <script type="module" src="assets/js/app.js?v=234"></script>
+  <script type="module" src="assets/js/app.js?v=235"></script>
 </body>
 </html>

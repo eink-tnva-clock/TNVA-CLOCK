@@ -9,16 +9,8 @@ import { FaceEditor, TYPE_LABELS, DYNAMIC_TYPES, download, calendarGeometry, ele
 import { normalizeVietnameseText } from './editor.js';
 import { TnvaBle, crc32, describeBleDiagnostics } from './ble.js';
 import { saveProject, listProjects, deleteProject } from './storage.js';
-import { listPublicFaces, publishFace, incrementDownload, publicStoreConfigured, fetchFacePackage, listOwnSubmissions } from './community.js';
-import {
-  requestActivation, redeemActivationCode, cachedActivation,
-  redeemActivationSignature, redeemCliActivationCode,
-} from './activation.js';
-import {
-  reportTelemetry, reportTelemetryManually, isTelemetryEnabled, setTelemetryEnabled,
-  hasSeenTelemetryExplainer, markTelemetryExplainerSeen, flushTelemetryQueue, reportDeviceCheckin,
-} from './telemetry.js';
-import { DEVICE, normalizeServiceUrl, serviceApiBase } from './config.js';
+import { redeemCliActivationCode } from './activation.js';
+import { DEVICE, FEATURES, FW_MANIFEST_URL, FW_BASE_URL } from './config.js';
 import {
   PANEL_PROFILES, DEFAULT_PROFILE_KEY, profileById, COLOR_MODE,
   setActivePanel, getActivePanel, panelIdForSize, keyForProfile,
@@ -38,9 +30,6 @@ import { TET_DECORATIONS, tetDecorationById } from './tet-decorations.js';
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-/* R25.10 (mục 6u): "phiên bản web" gửi kèm báo cáo lỗi -- bump cùng lúc với
- * các đợt đổi lớn (khớp quy ước cache-bust ?v=NNN đã dùng trong index.html). */
-const WEB_VERSION = '2.6.3';
 const connectGate = $('#connectGate');
 const appShell = $('#appShell');
 const logWindow = $('#logWindow');
@@ -148,31 +137,6 @@ function renderActivityLog() {
   $('#logCount').textContent = String(activityEntries.length);
 }
 
-/* R25.10 (mục 6): maps a log entry's already-existing operation/ackCode
- * tags to one of the 6 severe telemetry types -- centralized here instead
- * of touching each individual catch block (there are ~20), since every
- * one of them already flows through log() with these same fields. Flash-
- * layer ack codes (6/7/8: erase/write/CRC) take priority regardless of
- * which upload they happened during -- the root cause is the flash chip/
- * SPI bus, not the specific content being validated, so "Ghi flash fail"
- * is more actionable to an admin than "gói face bị từ chối" for those. */
-function classifyTelemetryType(details) {
-  const ackCode = details?.ackCode;
-  if (ackCode === 6 || ackCode === 7 || ackCode === 8) return 'flash-error';
-  if (details?.operation === 'ota') return 'ota-failure';
-  if (details?.operation === 'atlas-upload') return 'atlas-error';
-  if (details?.operation === 'face-upload') return 'face-rejected';
-  return null;
-}
-
-/* mục u: "20 dòng log cuối trước lỗi" -- chỉ message/level/time, KHÔNG lấy
- * details thô (có thể chứa nội dung face/ảnh tự thiết kế, mục u cấm rõ). */
-function telemetryLogTail() {
-  return activityEntries.slice(-20)
-    .map(entry => `[${entry.timestamp.slice(11, 19)}] ${SEVERITY_LABEL[entryLevel(entry)]} ${entry.message}`)
-    .join('\n');
-}
-
 function log(message, details = {}) {
   /* Web-tu-thich-ung-theo-panel muc 4 "ep mau do->den khi mono ... ghi log
    * canh bao": entryLevel() truoc day chi tu suy level tu
@@ -198,16 +162,6 @@ function log(message, details = {}) {
   renderActivityLog();
   const live = $('#liveActivity');
   if (live) live.textContent = message;
-  if (entry.level === 'error') {
-    const type = classifyTelemetryType(details);
-    if (type) {
-      reportTelemetry({
-        type, code: String(details?.ackCode ?? ''), message: entry.message,
-        deviceId: lastDeviceStatus?.time?.deviceId, fwVersion: lastDeviceStatus?.time?.firmware,
-        webVersion: WEB_VERSION, logTail: telemetryLogTail(),
-      });
-    }
-  }
   return entry;
 }
 
@@ -272,42 +226,18 @@ document.addEventListener('toggle', event => {
 
 let bleOperationBusy = false;
 const ble = new TnvaBle(log);
-ble.onDisconnect(({ userInitiated } = {}) => {
-  if (!userInitiated) {
-    reportTelemetry({
-      type: 'ble-disconnect', code: 'unexpected', message: 'Mất kết nối BLE bất thường (không phải người dùng chủ động ngắt)',
-      deviceId: lastDeviceStatus?.time?.deviceId, fwVersion: lastDeviceStatus?.time?.firmware,
-      webVersion: WEB_VERSION, logTail: telemetryLogTail(),
-    });
-  }
-  setDeviceOffline();
-});
+ble.onDisconnect(() => setDeviceOffline());
 let lastDeviceStatus = null;
-let currentFirmwareRelease = null;
 ble.onOperationChange(({busy,name}) => setBleOperationBusy(busy, name));
 
-/* R25.10 (mục 6t "Lỗi JS chưa bắt"): global catch-all, separate from every
- * try/catch already in this file (those handle EXPECTED failures, already
- * classified through log()'s classifyTelemetryType() above) -- this is
- * specifically for bugs, exceptions nothing anticipated. Rate-limited the
- * same way as everything else in telemetry.js (daily cap + dedup by
- * message), so a tight error loop can't flood the Pi. */
-window.addEventListener('error', event => {
-  reportTelemetry({
-    type: 'js-error', code: event.filename ? `${event.filename.split('/').pop()}:${event.lineno}` : '',
-    message: String(event.message || event.error?.message || 'Lỗi JS không rõ'),
-    deviceId: lastDeviceStatus?.time?.deviceId, fwVersion: lastDeviceStatus?.time?.firmware,
-    webVersion: WEB_VERSION, logTail: telemetryLogTail(),
-  });
-});
-window.addEventListener('unhandledrejection', event => {
-  reportTelemetry({
-    type: 'js-error', code: 'unhandled-promise',
-    message: String(event.reason?.message || event.reason || 'Promise bị từ chối không rõ lý do'),
-    deviceId: lastDeviceStatus?.time?.deviceId, fwVersion: lastDeviceStatus?.time?.firmware,
-    webVersion: WEB_VERSION, logTail: telemetryLogTail(),
-  });
-});
+/* Task 2 (tab Firmware) định nghĩa renderFirmwareTab() ở cuối file, sau
+ * showView()/updateDeviceStatus()/setDeviceOffline() -- 3 chỗ đó gọi qua
+ * biến này thay vì tên hàm trực tiếp. Mặc định no-op: khi
+ * FEATURES.OTA_GITHUB_CHANNEL tắt, biến này không bao giờ được gán lại nên
+ * mọi lời gọi là vô hại. Trả về Promise (như bản thật, async) để mọi nơi
+ * gọi `.catch()`/`await` được luôn, không cần if FEATURES ở từng chỗ gọi. */
+let refreshFirmwareTab = () => Promise.resolve();
+
 renderActivityLog();
 
 /* R23: atlas size depends on rasterizing every glyph a face needs, which
@@ -479,7 +409,12 @@ function updateDeviceCapabilityUI() {
    * (nút mẫu 4.2", chọn xem đen/đỏ) -- không đổi. */
   const profile = PANEL_PROFILES[editor.project.profileKey] || PANEL_PROFILES[DEFAULT_PROFILE_KEY];
   const designOnly = Boolean(profile.designOnly);
-  const tricolor = editor.project.planes === 2;
+  /* R26.1 (Task 3 offline-activation): FEATURES.PANEL_420 -- 4.2" đã chạy
+   * được thật (xem comment R25.13 Bước 6 ngay trên), nhưng CHƯA công bố ra
+   * ngoài (quyết định kinh doanh, không phải lỗi kỹ thuật). Cộng thêm điều
+   * kiện cờ vào đây là đủ tắt open42SamplesBtn/planePreview bên dưới --
+   * không đụng gì tới designOnly/PANEL_PROFILES. */
+  const tricolor = editor.project.planes === 2 && FEATURES.PANEL_420;
   $('#designOnlyBanner')?.classList.toggle('hidden', !designOnly);
   $('#open42SamplesBtn')?.classList.toggle('hidden', !tricolor);
   $('#planePreview')?.classList.toggle('hidden', !tricolor);
@@ -492,20 +427,13 @@ function updateDeviceCapabilityUI() {
    * Ngược lại trả về ĐÚNG điều kiện setDeviceAccess() dùng
    * (bleOperationBusy||!connected) thay vì bật lại vô điều kiện -- không
    * giẫm lên logic khoá nút lúc đang bận BLE/chưa kết nối quản lý ở nơi
-   * khác. publishBtn: kho cộng đồng chỉ hỗ trợ TNF1/2.13 (publishFace()
-   * gọi editor.compile(), không có đường TN42) -- khoá theo `tricolor`,
-   * KHÔNG theo `designOnly`, vì đây là giới hạn khác (chưa xây, không phải
-   * "chưa có firmware"). */
+   * khác. */
   const mismatch = isPanelMismatched();
-  const installBtn = $('#installBtn'), publishBtn = $('#publishBtn');
+  const installBtn = $('#installBtn');
   if (installBtn) {
     installBtn.disabled = designOnly || (tricolor && mismatch) || bleOperationBusy || !ble.connected;
     installBtn.title = designOnly ? 'Thiết bị 4.2" chưa có firmware/driver thật -- chưa gửi lên máy được.'
       : (tricolor && mismatch) ? 'Panel đang kết nối không khớp thiết bị đang thiết kế.' : '';
-  }
-  if (publishBtn) {
-    publishBtn.disabled = tricolor;
-    publishBtn.title = tricolor ? 'Thiết bị 3 màu chưa hỗ trợ đăng kho công cộng.' : '';
   }
   const refreshRow = $('#refreshInfoRow'), refreshLabel = $('#refreshInfo');
   if (refreshRow && refreshLabel) {
@@ -590,7 +518,7 @@ function setDeviceAccess(status = null) {
     const supported = connected && Number(button.dataset.face) < faceCount;
     button.disabled = bleOperationBusy || !supported;
   });
-  ['#installBtn','#photoUpload','#countdownUpload'].forEach(selector => {
+  ['#installBtn','#photoUpload','#countdownUpload','#autoRotateSaveBtn'].forEach(selector => {
     const node = $(selector);
     if (node) node.disabled = bleOperationBusy || !connected;
   });
@@ -599,7 +527,7 @@ function setDeviceAccess(status = null) {
 function setBleOperationBusy(busy, name = null) {
   bleOperationBusy = Boolean(busy);
   if (busy) {
-    ['#syncTimeBtn','#installBtn','#photoUpload','#countdownUpload','#installFirmwareBtn'].forEach(selector => {
+    ['#syncTimeBtn','#installBtn','#photoUpload','#countdownUpload','#installFirmwareBtn','#autoRotateSaveBtn'].forEach(selector => {
       const node = $(selector); if (node) node.disabled = true;
     });
     $$('.apply-face').forEach(button => { button.disabled = true; });
@@ -611,64 +539,11 @@ function setBleOperationBusy(busy, name = null) {
   else setDeviceAccess(null);
 }
 
-function saveServiceAddress() {
-  const input = $('#serviceServerUrl');
-  const typed = normalizeServiceUrl(input?.value || '');
-  if (!typed) throw new Error('Nhập địa chỉ máy chủ Pi');
-  localStorage.setItem('tnvaServiceApi', typed);
-  if (input) input.value = typed;
-  return typed;
-}
-
-const serviceServerInput = $('#serviceServerUrl');
-if (serviceServerInput) {
-  try { serviceServerInput.value = serviceApiBase({ required:false }); }
-  catch { serviceServerInput.value = ''; }
-}
-$('#saveServiceUrlBtn')?.addEventListener('click', () => {
-  try { saveServiceAddress(); toast('Đã lưu địa chỉ máy chủ', 'success'); }
-  catch (error) { reportError(error); }
-});
-
-/* R25.10 (mục 3): "Máy chủ Pi" is an operator/technician setting, not
- * something a regular customer needs to see or touch -- hidden unless
- * admin mode is on. No real auth here on purpose: this only controls
- * whether the FIELD is visible in the UI, not any actual permission --
- * the Pi's own /admin already has real HTTP Basic Auth
- * (pi_server/app.py's admin_required) for anything that matters. 7 taps
- * on the wordmark is a standard "developer mode" gesture, easy to find
- * for whoever sets up devices, invisible to everyone else. */
-const ADMIN_MODE_KEY = 'tnvaAdminMode';
-function setAdminMode(on) {
-  if (on) localStorage.setItem(ADMIN_MODE_KEY, '1');
-  else localStorage.removeItem(ADMIN_MODE_KEY);
-  $('#adminServicePanel')?.classList.toggle('hidden', !on);
-}
-setAdminMode(localStorage.getItem(ADMIN_MODE_KEY) === '1');
-(function wireAdminModeTapGesture() {
-  const target = $('#brandTapTarget');
-  if (!target) return;
-  let count = 0;
-  let resetTimer = null;
-  target.addEventListener('click', () => {
-    count += 1;
-    clearTimeout(resetTimer);
-    resetTimer = setTimeout(() => { count = 0; }, 2000);
-    if (count >= 7) {
-      count = 0;
-      const nowOn = localStorage.getItem(ADMIN_MODE_KEY) !== '1';
-      setAdminMode(nowOn);
-      toast(nowOn ? 'Đã bật chế độ quản trị' : 'Đã tắt chế độ quản trị', 'success');
-    }
-  });
-})();
-
-/* R25.10 (mục 4): panel visibility now follows the REAL firmware flag
- * (status.time.activated, FF01 byte 33) instead of a browser-local
- * cache -- cachedActivation() only ever meant "this browser once redeemed
- * the Phase F web code", not "this chip is unlocked". null (unknown --
- * not connected yet, or old firmware) keeps the panel visible: better to
- * show it unnecessarily than hide it while a real lock is in effect. */
+/* R25.10 (mục 4): panel visibility follows the REAL firmware flag
+ * (status.time.activated, FF01 byte 33), never a browser-local cache --
+ * only the chip itself knows whether it's unlocked. null (unknown -- not
+ * connected yet, or old firmware) keeps the panel visible: better to show
+ * it unnecessarily than hide it while a real lock is in effect. */
 function setActivationPanelVisibility(status) {
   const panel = $('#activationPanel');
   if (!panel) return;
@@ -687,14 +562,6 @@ function setActivationPanelVisibility(status) {
   if (copyBtn) copyBtn.disabled = !deviceId;
 }
 
-const PENDING_REQUEST_KEY = 'tnvaActivationPendingRequestCode';
-function setPendingRequestCode(code) {
-  if (code) localStorage.setItem(PENDING_REQUEST_KEY, code);
-  else localStorage.removeItem(PENDING_REQUEST_KEY);
-  $('#activationCheckBtn')?.classList.toggle('hidden', !code);
-}
-setPendingRequestCode(localStorage.getItem(PENDING_REQUEST_KEY));
-
 $('#activationCopyDeviceIdBtn')?.addEventListener('click', async () => {
   const deviceId = lastDeviceStatus?.time?.deviceId;
   if (!deviceId) return;
@@ -702,45 +569,21 @@ $('#activationCopyDeviceIdBtn')?.addEventListener('click', async () => {
   catch { toast('Không sao chép được -- tự chọn và copy thủ công', 'error'); }
 });
 
-$('#activationRequestBtn')?.addEventListener('click', async () => {
-  const button = $('#activationRequestBtn');
-  const result = $('#activationRequestResult');
-  const deviceId = lastDeviceStatus?.time?.deviceId;
-  if (!deviceId) { toast('Kết nối đồng hồ trước để lấy mã thiết bị', 'error'); return; }
-  button.disabled = true;
+$('#activationPasteBtn')?.addEventListener('click', async () => {
+  const input = $('#activationCliCode');
   try {
-    const note = $('#activationRequestNote').value.trim();
-    const response = await requestActivation({ deviceId: deviceId.toLowerCase(), note });
-    setPendingRequestCode(response.request_code);
-    result.textContent = `Đã gửi. Mã yêu cầu: ${response.request_code} -- giữ mã này để tra cứu.`;
-    toast('Đã gửi yêu cầu kích hoạt', 'success');
-  } catch (error) { reportError(error); }
-  finally { button.disabled = false; }
-});
-
-$('#activationCheckBtn')?.addEventListener('click', async () => {
-  const button = $('#activationCheckBtn');
-  const deviceId = lastDeviceStatus?.time?.deviceId;
-  if (!deviceId) { toast('Kết nối đồng hồ trước', 'error'); return; }
-  const requestCode = localStorage.getItem(PENDING_REQUEST_KEY);
-  if (!requestCode) { toast('Chưa có yêu cầu nào đang chờ', 'error'); return; }
-  button.disabled = true;
-  try {
-    const status = await ble.readStatus();
-    updateDeviceStatus(status);
-    const next = await redeemActivationSignature(ble, requestCode, deviceId.toLowerCase());
-    updateDeviceStatus(next);
-    setPendingRequestCode(null);
-    toast('Đã kích hoạt thiết bị', 'success');
-  } catch (error) { reportError(error); }
-  finally { button.disabled = false; }
+    const text = await navigator.clipboard.readText();
+    if (input) input.value = text.trim();
+  } catch {
+    toast('Không đọc được clipboard -- tự dán bằng Ctrl+V vào ô bên dưới', 'error');
+  }
 });
 
 $('#activationCliApplyBtn')?.addEventListener('click', async () => {
   const button = $('#activationCliApplyBtn');
   const input = $('#activationCliCode');
   const code = input.value.trim();
-  if (!code) { toast('Dán mã trước', 'error'); return; }
+  if (!code) { toast('Dán mã kích hoạt trước', 'error'); return; }
   button.disabled = true;
   try {
     const next = await redeemCliActivationCode(ble, code);
@@ -774,6 +617,12 @@ function setDeviceOffline() {
   $('#disconnectBtn').disabled = true;
   setDeviceAccess(null);
   $$('.apply-face').forEach(button => { button.disabled = true; });
+  $('#firmwareUpdatePanel')?.classList.add('hidden');
+  selectedFirmwareBin = null;
+  selectedFirmwareSig = null;
+  if ($('#firmwareBinFile')) $('#firmwareBinFile').value = '';
+  if ($('#firmwareSigFile')) $('#firmwareSigFile').value = '';
+  updateInstallFirmwareBtnState();
   refreshUiForActivePanel(); // activePanel -> null, giu nguyen editor.project (khong xoa)
   /* Lệnh Studio (mục E1, 2026-08-26): "chưa kết nối -> ẩn hoàn toàn" áp
    * dụng ngay khi mất kết nối, không đợi lần đọc trạng thái kế tiếp --
@@ -783,6 +632,7 @@ function setDeviceOffline() {
    * status?.time?.activated là undefined (!== true) -> ẩn, và devices Id
    * rỗng -> khoá nút Sao chép, xoá mã cũ khỏi màn hình. */
   setActivationPanelVisibility(null);
+  if ($('#firmwareView')?.classList.contains('active')) refreshFirmwareTab().catch(() => {});
 }
 
 async function openConnectedApp(status) {
@@ -797,11 +647,6 @@ async function openConnectedApp(status) {
   $('#disconnectBtn').disabled = false;
   updateDeviceStatus(status);
   refreshUiForActivePanel(); // doc ble.deviceInfo -> setActivePanel() -> toan app re-render theo profile (muc 1)
-  /* R25.12 (mục 6): báo cáo THIẾT BỊ cho Pi mỗi lần kết nối thành công --
-   * chỉ mã thiết bị + phiên bản firmware (reportDeviceCheckin() tự theo
-   * đúng công tắc bật/tắt báo cáo có sẵn, im lặng nếu Pi chưa cấu hình/
-   * không tới được -- không chặn bất cứ gì ở đây). */
-  reportDeviceCheckin(status.time?.deviceId, status.time?.firmware).catch(() => {});
   clearInterval(deviceTimer);
   deviceTimer = setInterval(async () => {
     if (ble.busy) return;
@@ -809,7 +654,7 @@ async function openConnectedApp(status) {
   }, 5000);
   editor.setZoom(window.innerWidth <= 900 ? Math.max(1.45, Math.min(3.25, (window.innerWidth - 58) / editor.project.width)) : 4); updateZoom();
   await renderLocalLibrary();
-  if (serviceApiBase({ required:false })) checkFirmwareUpdate().catch(() => {});
+  if (FEATURES.OTA_MANUAL_FILE) $('#firmwareUpdatePanel')?.classList.remove('hidden');
 }
 
 function updateDeviceStatus(status) {
@@ -846,6 +691,8 @@ function updateDeviceStatus(status) {
    * trên canvas mới trigger reportPackage() lần kế tiếp. */
   editor.reportPackage();
   checkBleDiagnostics(time);
+  syncAutoRotateFromStatus(time);
+  if ($('#firmwareView')?.classList.contains('active')) refreshFirmwareTab().catch(() => {});
 }
 
 /* R25.11 (mục 1): chỉ ghi log khi bản ghi chẩn đoán trong FF01 THỰC SỰ
@@ -864,11 +711,8 @@ function checkBleDiagnostics(time) {
   if (diag.disconnectReason === 0) return; // Đổi chỉ vì faceChangeCount tăng, chưa từng ngắt kết nối -- không phải sự kiện cần báo.
   const described = describeBleDiagnostics(diag);
   /* result:'cancelled' -> entryLevel() đọc thành 'warn' (CẢNH BÁO, vàng) --
-   * đúng quy ước log() hiện có (xem entryLevel()), không phải 'error' để
-   * KHÔNG vô tình kích hoạt reportTelemetry() (classifyTelemetryType() chỉ
-   * nhận ota/atlas-upload/face-upload -- 'ble-diag' không khớp cái nào,
-   * đây là bản ghi CHẨN ĐOÁN đọc lại được, không phải 1 trong 6 loại lỗi
-   * nghiêm trọng tự báo lên Pi của mục 6 đợt trước). */
+   * đúng quy ước log() hiện có (xem entryLevel()): đây là bản ghi CHẨN ĐOÁN
+   * đọc lại được, không phải một lỗi thật cần cảnh báo đỏ. */
   log(`Phát hiện bản ghi ngắt BLE mới: ${described.summary}`, {
     operation: 'ble-diag', result: 'cancelled', reason: diag.disconnectReason,
     faceChangeCount: diag.faceChangeCount, timerState: diag.timerState,
@@ -915,6 +759,7 @@ function showView(name) {
   $$('.tab').forEach(tab => tab.classList.toggle('active', tab.dataset.view === name));
   if (name === 'library') renderActiveLibrary();
   if (name === 'device') ble.readStatus().then(updateDeviceStatus).catch(() => {});
+  if (name === 'firmware') refreshFirmwareTab().catch(() => {});
 }
 $$('.tab').forEach(tab => tab.addEventListener('click', () => showView(tab.dataset.view)));
 
@@ -973,11 +818,28 @@ $('#planePreview')?.addEventListener('change', event => editor.setPreviewPlane(e
  * (cảnh báo cũ, không đổi). Đổi SANG thiết bị khác (deviceClass khác) thì
  * cảnh báo MẠNH HƠN hẳn -- không co giãn, toạ độ giữ nguyên số cũ, gần như
  * chắc chắn phải dựng lại bố cục từ đầu. */
+/* R26.1 (Task 3): ẩn (không xoá) 2 <option> 400x300/300x400 khỏi bộ chọn
+ * panel khi FEATURES.PANEL_420 tắt -- PANEL_PROFILES trong panel_profiles.js
+ * giữ nguyên, chỉ lọc ở tầng UI này. */
+if (!FEATURES.PANEL_420) {
+  $$('#screenProfile option').forEach(option => {
+    if (DEVICE.profiles[option.value]?.deviceClass === 'eink42tri') option.hidden = true;
+  });
+  $('#panel420Tagline')?.classList.add('hidden');
+}
 $('#screenProfile').addEventListener('change', event => {
   const target = event.target.value;
   const previous = editor.project.profileKey || `${editor.project.width}x${editor.project.height}`;
   if (target === previous) return;
   const targetProfile = DEVICE.profiles[target];
+  /* R26.1 (Task 3): phòng trường hợp console/DevTools ép chọn 1 <option>
+   * 4.2" đã bị ẩn ở tầng UI (xem init phía dưới) -- chặn ở đây nữa, revert
+   * về giá trị cũ. */
+  if (!FEATURES.PANEL_420 && targetProfile?.deviceClass === 'eink42tri') {
+    event.target.value = previous;
+    toast('Thiết bị 4.2" chưa được hỗ trợ trong phiên bản này', 'error');
+    return;
+  }
   const currentClass = editor.project.deviceClass || 'eink213';
   const targetClass = targetProfile?.deviceClass || 'eink213';
   const deviceChange = currentClass !== targetClass;
@@ -1881,6 +1743,9 @@ $('#designAuthor').addEventListener('input', event => { editor.project.author = 
 function deviceGroups() {
   const groups = new Map();
   for (const [key, profile] of Object.entries(DEVICE.profiles)) {
+    /* R26.1 (Task 3): ẩn nhóm 4.2" khỏi modal "Tạo mới" khi FEATURES.PANEL_420
+     * tắt -- lọc ở tầng UI, không đụng DEVICE.profiles/PANEL_PROFILES. */
+    if (!FEATURES.PANEL_420 && profile.deviceClass === 'eink42tri') continue;
     const deviceClass = profile.deviceClass || 'eink213';
     if (!groups.has(deviceClass)) groups.set(deviceClass, []);
     groups.get(deviceClass).push([key, profile]);
@@ -1933,7 +1798,9 @@ async function open42SamplePicker() {
     });
   } catch (error) { reportError(error); }
 }
-$('#open42SamplesBtn')?.addEventListener('click', open42SamplePicker);
+/* R26.1 (Task 3): không đăng ký listener khi PANEL_420 tắt -- đồng nhất
+ * cách làm với khối OTA_MANUAL_FILE (Task 1)/OTA_GITHUB_CHANNEL (Task 2). */
+if (FEATURES.PANEL_420) $('#open42SamplesBtn')?.addEventListener('click', open42SamplePicker);
 
 /* PHẦN 5 -- Trang trí Tết: bitmap 1-bit dựng sẵn (tools/generate_tet_decorations.mjs),
  * KHÔNG phải font -- chèn ra đúng 1 phần tử 'image' bình thường
@@ -1988,28 +1855,6 @@ $('#downloadProjectBtn').addEventListener('click', () => editor.downloadProject(
 $('#projectFileInput').addEventListener('change', async event => {
   const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
   try { await editor.importFile(file); toast('Đã mở file', 'success'); } catch (error) { reportError(error); }
-});
-
-$('#publishBtn').addEventListener('click', async () => {
-  if (!publicStoreConfigured()) {
-    showModal(`<h2>Kho cộng đồng</h2><p>Dịch vụ TNVA chưa được cấu hình.</p><div class="modal-actions"><button class="btn primary" id="modalClose">Đóng</button></div>`);
-    $('#modalClose').onclick = closeModal; return;
-  }
-  showModal(`<h2>Gửi giao diện để duyệt</h2>
-    <div class="prop"><label>Tên giao diện</label><input id="publishTitle" value="${escapeHtml(editor.project.title)}"></div>
-    <div class="prop"><label>Tác giả</label><input id="publishAuthor" value="${escapeHtml(editor.project.author)}"></div>
-    <p>Giao diện sẽ được đăng sau khi duyệt.</p><div class="modal-actions"><button class="btn" id="modalCancel">Hủy</button><button class="btn primary" id="modalPublish">Gửi để duyệt</button></div>`);
-  $('#modalCancel').onclick = closeModal;
-  $('#modalPublish').onclick = async () => {
-    const button = $('#modalPublish'); button.disabled = true;
-    try {
-      editor.project.title = $('#publishTitle').value.trim() || 'Không tên';
-      editor.project.author = $('#publishAuthor').value.trim() || 'Ẩn danh';
-      const compiled = await editor.compile();
-      await publishFace({ title:editor.project.title, author:editor.project.author, width:editor.project.width, height:editor.project.height, preview:compiled.preview, packageBytes:compiled.packageBytes });
-      closeModal(); toast('Đã gửi để duyệt', 'success'); await renderPublicLibrary();
-    } catch (error) { reportError(error); button.disabled = false; }
-  };
 });
 
 $('#installBtn').addEventListener('click', async () => {
@@ -2165,28 +2010,26 @@ function isPanelCompatibleRow(row) {
   return rowPanelId === null || rowPanelId === activePanel.id;
 }
 
+/* R26.1 (Task 3): isPanelCompatibleRow() ở trên chỉ lọc SAU khi đã kết nối
+ * (activePanel null lúc offline -> không lọc gì) -- kho hiện tại chưa có
+ * face 4.2" nào nhưng phòng khi có, ẩn hẳn theo kích thước bất kể đã kết
+ * nối hay chưa khi FEATURES.PANEL_420 tắt, không phụ thuộc activePanel. */
+function isPanel420AllowedRow(row) {
+  if (FEATURES.PANEL_420) return true;
+  const { width, height } = rowScreenSize(row);
+  return !((width === 400 && height === 300) || (width === 300 && height === 400));
+}
+
 async function renderLocalLibrary() {
   const rows = await listProjects();
   const query = normalizeSearch($('#librarySearch').value);
   const filtered = rows
     .filter(row => !query || normalizeSearch(`${row.title} ${row.author}`).includes(query))
-    .filter(isPanelCompatibleRow);
+    .filter(isPanelCompatibleRow)
+    .filter(isPanel420AllowedRow);
   const root = $('#localLibrary');
   root.innerHTML = filtered.length ? filtered.map(row => designCard(row,'local')).join('') : '<div class="empty-state panel">Chưa có giao diện</div>';
   bindLibraryCards(root,'local');
-}
-
-async function renderPublicLibrary() {
-  const root = $('#publicLibrary');
-  if (!publicStoreConfigured()) { root.innerHTML = '<div class="empty-state panel">Kho cộng đồng chưa cấu hình</div>'; return; }
-  root.innerHTML = '<div class="empty-state panel">Đang tải</div>';
-  try {
-    const [rows, own] = await Promise.all([listPublicFaces($('#librarySearch').value.trim()), listOwnSubmissions().catch(() => [])]);
-    const ownPending = own.filter(item => item.status !== 'approved').map(item => ({...item, mine:true}));
-    const cards = [...ownPending, ...rows].filter(isPanelCompatibleRow);
-    root.innerHTML = cards.length ? cards.map(row => designCard(row,'public')).join('') : '<div class="empty-state panel">Chưa có giao diện</div>';
-    bindLibraryCards(root,'public', cards);
-  } catch (error) { root.innerHTML = `<div class="empty-state panel">${escapeHtml(error.message)}</div>`; }
 }
 
 function designCard(row, source) {
@@ -2200,11 +2043,9 @@ function designCard(row, source) {
     <div class="card-actions"><button class="btn" data-open>${source==='local'?'Mở':'Gửi vào đồng hồ'}</button><button class="btn" data-download>Tải</button>${source==='local'?'<button class="btn" data-delete>Xóa</button>':''}</div></div></article>`;
 }
 
-/* Gói kho có sẵn nằm ngay trong thư mục web; gói cộng đồng qua dịch vụ TNVA. */
+/* Gói kho có sẵn nằm ngay trong thư mục web, tải thẳng không qua dịch vụ
+ * nào -- kho cộng đồng (từng tải qua Pi khi thiếu packageUrl) đã bị gỡ. */
 async function loadFacePackageBytes(row) {
-  /* Community/local rows retain their established loading contract; the
-   * BLE layer below is the final normalisation gate for every upload. */
-  if (!row.packageUrl) return fetchFacePackage(row);
   const response = await fetch(row.packageUrl, { cache: 'no-cache' });
   if (!response.ok) throw new Error('Không tải được gói giao diện');
   return normalizeCrisp213Package(new Uint8Array(await response.arrayBuffer()));
@@ -2223,8 +2064,7 @@ function bindLibraryCards(root, source, suppliedRows = null) {
           return;
         }
         if (!ble.connected) throw new Error('Chưa kết nối đồng hồ');
-        const rows = suppliedRows || await listPublicFaces();
-        const row = rows.find(item => String(item.id) === String(id));
+        const row = suppliedRows.find(item => String(item.id) === String(id));
         if (!row) throw new Error('Không tìm thấy giao diện');
         const bytes = await loadFacePackageBytes(row);
         await ble.uploadFace(bytes, value => { if (value % 10 === 0 || value === 100) toast(`Đang gửi ${value}%`); });
@@ -2239,12 +2079,10 @@ function bindLibraryCards(root, source, suppliedRows = null) {
           if (!row) throw new Error('Không tìm thấy giao diện');
           download(`${slug(row.title)}.tnvaproject`, new Blob([JSON.stringify(row,null,2)],{type:'application/json'}));
         } else {
-          const rows = suppliedRows || await listPublicFaces();
-          const row = rows.find(item => String(item.id) === String(id));
+          const row = suppliedRows.find(item => String(item.id) === String(id));
           if (!row) throw new Error('Không tìm thấy giao diện');
           const bytes = await loadFacePackageBytes(row);
           download(`${slug(row.title)}.tnvafacebin`, new Blob([bytes],{type:'application/octet-stream'}));
-          if (!row.packageUrl) incrementDownload(id);
         }
       } catch (error) { reportError(error); }
     };
@@ -2259,13 +2097,6 @@ function normalizeSearch(text='') {
   return String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 }
 function slug(text='giao-dien'){return normalizeSearch(text).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'giao-dien';}
-async function importCommunityPackage(row) {
-  /* Gói của kho có sẵn nằm ngay trong thư mục web, tải thẳng không qua dịch vụ. */
-  const bytes = await loadFacePackageBytes(row);
-  const file = new File([bytes], `${slug(row.title)}.tnvafacebin`, {type:'application/octet-stream'});
-  await editor.importFile(file);
-}
-
 /* Kho có sẵn: các gói dựng từ file kho giao diện, phục vụ ngay tại chỗ nên
    không cần cấu hình dịch vụ nào. Xem tools/import_design_warehouse.py. */
 const WAREHOUSE_ROOT = 'web_faces/warehouse';
@@ -2311,7 +2142,8 @@ async function renderWarehouseLibrary() {
     const rows = (await loadWarehouseRows())
       .filter(row => !term || normalizeSearch(`${row.title} ${row.author}`).includes(term))
       .filter(row => !wanted || (row.width > row.height ? 'landscape' : 'portrait') === wanted)
-      .filter(isPanelCompatibleRow);
+      .filter(isPanelCompatibleRow)
+      .filter(isPanel420AllowedRow);
     root.innerHTML = rows.length
       ? rows.map(row => designCard(row, 'warehouse')).join('')
       : '<div class="empty-state panel">Không tìm thấy giao diện (thử đổi bộ lọc hướng)</div>';
@@ -2327,7 +2159,6 @@ function activeLibraryMode() {
 function renderActiveLibrary() {
   const mode = activeLibraryMode();
   if (mode === 'warehouse') return renderWarehouseLibrary();
-  if (mode === 'public') return renderPublicLibrary();
   return renderLocalLibrary();
 }
 
@@ -2335,7 +2166,6 @@ $$('.library-tab').forEach(button => button.addEventListener('click', () => {
   $$('.library-tab').forEach(item=>item.classList.toggle('active',item===button));
   const mode=button.dataset.library;
   $('#localLibrary').classList.toggle('hidden',mode!=='local');
-  $('#publicLibrary').classList.toggle('hidden',mode!=='public');
   $('#warehouseLibrary').classList.toggle('hidden',mode!=='warehouse');
   renderActiveLibrary();
 }));
@@ -2379,51 +2209,6 @@ $('#clockCorrectionSaveBtn')?.addEventListener('click', () => {
   toast(sec ? `Đã lưu hiệu chỉnh ${sec > 0 ? '+' : ''}${sec}s` : 'Đã tắt hiệu chỉnh giờ thủ công', 'success');
 });
 
-/* R25.10 (mục 6v): công tắc + giải thích lần đầu + nút gửi thủ công. */
-function refreshTelemetryBadge() {
-  $('#telemetryBadge')?.classList.toggle('hidden', !isTelemetryEnabled());
-}
-const telemetryToggle = $('#telemetryToggle');
-if (telemetryToggle) telemetryToggle.checked = isTelemetryEnabled();
-refreshTelemetryBadge();
-telemetryToggle?.addEventListener('change', event => {
-  const wantsOn = event.target.checked;
-  if (wantsOn && !hasSeenTelemetryExplainer()) {
-    event.target.checked = false; // Chờ xác nhận trong modal trước khi thật sự bật.
-    showModal(`<h2>Gửi báo cáo lỗi cho TNVA?</h2>
-      <p class="prop-help">Khi bật, ứng dụng tự gửi lên máy chủ TNVA ĐÚNG 6 loại lỗi nghiêm trọng: mất kết nối Bluetooth bất thường, ghi bộ nhớ flash lỗi, cập nhật phần mềm thất bại, giao diện bị từ chối, lỗi font atlas, và lỗi phần mềm web chưa được xử lý.</p>
-      <p class="prop-help">Mỗi báo cáo kèm: thời gian, mã lỗi, mã thiết bị, phiên bản phần mềm/web, trình duyệt, và 20 dòng nhật ký hoạt động gần nhất (chỉ thông báo ngắn, KHÔNG kèm nội dung giao diện hay ảnh bạn tự thiết kế). Tối đa 20 báo cáo/thiết bị/ngày.</p>
-      <div class="modal-actions"><button class="btn" id="modalCancel">Không bật</button><button class="btn primary" id="modalConfirmTelemetry">Đồng ý, bật</button></div>`);
-    $('#modalCancel').onclick = closeModal;
-    $('#modalConfirmTelemetry').onclick = () => {
-      markTelemetryExplainerSeen();
-      setTelemetryEnabled(true);
-      telemetryToggle.checked = true;
-      refreshTelemetryBadge();
-      closeModal();
-      toast('Đã bật gửi báo cáo lỗi', 'success');
-    };
-    return;
-  }
-  setTelemetryEnabled(wantsOn);
-  refreshTelemetryBadge();
-  toast(wantsOn ? 'Đã bật gửi báo cáo lỗi' : 'Đã tắt gửi báo cáo lỗi tự động', 'success');
-});
-$('#telemetrySendNowBtn')?.addEventListener('click', async () => {
-  const button = $('#telemetrySendNowBtn');
-  button.disabled = true;
-  try {
-    await reportTelemetryManually({
-      type: 'js-error', code: 'manual', message: 'Báo cáo gửi thủ công từ người dùng',
-      deviceId: lastDeviceStatus?.time?.deviceId, fwVersion: lastDeviceStatus?.time?.firmware,
-      webVersion: WEB_VERSION, logTail: telemetryLogTail(),
-    });
-    toast('Đã gửi báo cáo', 'success');
-  } catch (error) { toast('Không gửi được ngay -- đã xếp hàng, thử lại khi có mạng: ' + error.message, 'error'); }
-  finally { button.disabled = false; }
-});
-flushTelemetryQueue().catch(() => {});
-
 $('#syncTimeBtn').addEventListener('click', async () => {
   const button=$('#syncTimeBtn'); button.disabled=true;
   try {
@@ -2433,28 +2218,28 @@ $('#syncTimeBtn').addEventListener('click', async () => {
   } catch(error){reportError(error);} finally { button.disabled=!ble.connected; }
 });
 $('#toggleHourBtn').addEventListener('click', async () => { try { await ble.toggleHourFormat(); toast('Đã đổi định dạng','success'); } catch(error){reportError(error);} });
-async function checkFirmwareUpdate() {
-  const panel = $('#firmwareUpdatePanel');
-  if (!ble.connected || !lastDeviceStatus?.time?.firmware) { panel?.classList.add('hidden'); return null; }
-  const api = serviceApiBase();
-  const params = new URLSearchParams({
-    model:lastDeviceStatus.time.model || 'TNVA-EINK-213',
-    current:lastDeviceStatus.time.firmware
-  });
-  const response = await fetch(`${api}/api/v1/firmware/latest?${params}`, { cache:'no-store' });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || !result.ok) throw new Error(result.error || 'Không kiểm tra được bản cập nhật');
-  currentFirmwareRelease = result.update_available ? result.release : null;
-  panel?.classList.remove('hidden');
-  $('#firmwareUpdateTitle').textContent = currentFirmwareRelease ? `Có bản cập nhật ${currentFirmwareRelease.version}` : 'Phần mềm đã là bản mới nhất';
-  $('#firmwareUpdateNotes').textContent = currentFirmwareRelease?.notes || `Phiên bản hiện tại ${lastDeviceStatus.time.firmware}`;
-  $('#installFirmwareBtn').classList.toggle('hidden', !currentFirmwareRelease);
-  return currentFirmwareRelease;
+/* R26.1 (Task 1 offline-activation): nguồn byte cho OTA giờ có 2 luồng --
+ * chọn file thủ công (FEATURES.OTA_MANUAL_FILE, dưới đây) hoặc kênh GitHub
+ * chính thức (FEATURES.OTA_GITHUB_CHANNEL, tab Firmware). Cả hai đều build
+ * ra cùng một `release` shape rồi gọi runFirmwareUpdate() -- hàm này (và
+ * ble.updateFirmware() nó gọi bên trong) là "phần truyền file" dùng chung,
+ * KHÔNG đổi logic chunk/CRC/xác nhận theo nguồn file. */
+function bytesToBase64(bytes) {
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
 }
 
-$('#checkFirmwareBtn')?.addEventListener('click', async () => {
-  try { await checkFirmwareUpdate(); toast('Đã kiểm tra bản cập nhật','success'); } catch (error) { reportError(error); }
-});
+/* Khai báo ở scope module (không trong khối FEATURES.OTA_MANUAL_FILE bên
+ * dưới) vì setDeviceOffline() (phía trên, luôn chạy mỗi lần mất kết nối)
+ * cần reset 2 biến này bất kể cờ bật hay tắt -- chỉ phần ĐĂNG KÝ listener
+ * cho input file mới bị cờ chặn. */
+let selectedFirmwareBin = null;
+let selectedFirmwareSig = null;
+function updateInstallFirmwareBtnState() {
+  const button = $('#installFirmwareBtn');
+  if (button) button.disabled = !(selectedFirmwareBin && selectedFirmwareSig);
+}
 
 /* Sau khi 0xa4 ACK báo đã ghi+xác minh xong, đồng hồ tự platform_reset()
  * ~0.5s sau (xem ota_reset_cb() trong user_custs1_impl.c) -- mất kết nối
@@ -2479,33 +2264,223 @@ async function waitForOtaReconnectAndVerify(expectedVersion) {
   return { outcome: 'timeout' };
 }
 
-$('#cancelFirmwareBtn')?.addEventListener('click', () => {
-  ble.cancelFirmwareUpdate();
-  $('#cancelFirmwareBtn').disabled = true;
-  $('#firmwareProgressText').textContent = 'Đang huỷ...';
-});
-
-$('#installFirmwareBtn')?.addEventListener('click', async () => {
-  if (!currentFirmwareRelease) return;
-  const button=$('#installFirmwareBtn'); const cancelBtn=$('#cancelFirmwareBtn'); const progress=$('#firmwareProgress'); const bar=progress.querySelector('span');
-  const expectedVersion = currentFirmwareRelease.version;
-  button.disabled=true; progress.classList.remove('hidden'); bar.style.width='0%';
-  cancelBtn.classList.remove('hidden'); cancelBtn.disabled=false;
+/* Hàm OTA dùng chung -- cả luồng chọn-file-thủ-công (Task 1) lẫn kênh GitHub
+ * (Task 2) đều gọi đúng hàm này, chỉ khác `release`/`expectedVersion`/`ui`
+ * (bộ nút+progress bar riêng của từng tab). `release.download_url` có thể là
+ * blob: (file cục bộ) hoặc https: (GitHub raw) -- ble.updateFirmware() tự
+ * fetch() rồi validate size/SHA-256/CRC32/chữ ký/version, không phân biệt
+ * nguồn. */
+async function runFirmwareUpdate(release, expectedVersion, ui) {
+  const { buttonEl, cancelBtnEl, progressEl, barEl, textEl } = ui;
+  buttonEl.disabled = true; progressEl.classList.remove('hidden'); barEl.style.width = '0%';
+  cancelBtnEl.classList.remove('hidden'); cancelBtnEl.disabled = false;
+  const blockUnload = event => { event.preventDefault(); event.returnValue = ''; };
+  window.addEventListener('beforeunload', blockUnload);
   try {
-    await ble.updateFirmware(currentFirmwareRelease, value => { bar.style.width=`${value}%`; $('#firmwareProgressText').textContent=`${value}%`; });
-    cancelBtn.classList.add('hidden');
-    $('#firmwareProgressText').textContent = 'Đang khởi động lại...';
+    await ble.updateFirmware(release, value => { barEl.style.width = `${value}%`; textEl.textContent = `${value}%`; });
+    cancelBtnEl.classList.add('hidden');
+    textEl.textContent = 'Đang khởi động lại...';
     const { outcome, firmware } = await waitForOtaReconnectAndVerify(expectedVersion);
-    if (outcome === 'verified') toast(`Cập nhật thành công, phiên bản ${firmware}`,'success');
-    else if (outcome === 'rolledback') toast(`Đã rollback về bản cũ (không xác nhận được phiên bản ${expectedVersion}, đang chạy ${firmware})`,'error');
-    else toast('Chưa thấy đồng hồ sau 10s, đang chờ thêm -- kiểm tra lại sau, đây chưa hẳn là lỗi','warning');
+    if (outcome === 'verified') toast(`Cập nhật thành công, phiên bản ${firmware}`, 'success');
+    else if (outcome === 'rolledback') toast(`Đã rollback về bản cũ (không xác nhận được phiên bản ${expectedVersion}, đang chạy ${firmware})`, 'error');
+    else toast('Chưa thấy đồng hồ sau 10s, đang chờ thêm -- kiểm tra lại sau, đây chưa hẳn là lỗi', 'warning');
   } catch (error) {
-    cancelBtn.classList.add('hidden');
-    if (error.otaCancelled) toast('Đã huỷ cập nhật, đồng hồ vẫn dùng bản cũ','success');
+    cancelBtnEl.classList.add('hidden');
+    if (error.otaCancelled) toast('Đã huỷ cập nhật, đồng hồ vẫn dùng bản cũ', 'success');
     else reportError(error);
+  } finally {
+    window.removeEventListener('beforeunload', blockUnload);
+    buttonEl.disabled = false;
+    setTimeout(() => progressEl.classList.add('hidden'), 1800);
+    if (release.download_url?.startsWith('blob:')) URL.revokeObjectURL(release.download_url);
   }
-  finally { button.disabled=false; setTimeout(()=>progress.classList.add('hidden'),1800); }
-});
+}
+
+/* R26.1 (Task 1): khối chọn-file-thủ-công -- ẩn hoàn toàn sau
+ * FEATURES.OTA_MANUAL_FILE. Khi tắt, KHÔNG đăng ký bất kỳ listener nào cho
+ * #firmwareBinFile/#firmwareSigFile/#installFirmwareBtn/#cancelFirmwareBtn
+ * (tránh gọi được qua console/DevTools) và bỏ qua bước hiện lại
+ * #firmwareUpdatePanel lúc kết nối (xem openConnectedApp() bên trên). */
+if (FEATURES.OTA_MANUAL_FILE) {
+  $('#firmwareBinFile')?.addEventListener('change', async event => {
+    const file = event.target.files?.[0];
+    selectedFirmwareBin = file ? new Uint8Array(await file.arrayBuffer()) : null;
+    updateInstallFirmwareBtnState();
+  });
+  $('#firmwareSigFile')?.addEventListener('change', async event => {
+    const file = event.target.files?.[0];
+    selectedFirmwareSig = file ? new Uint8Array(await file.arrayBuffer()) : null;
+    updateInstallFirmwareBtnState();
+  });
+
+  $('#cancelFirmwareBtn')?.addEventListener('click', () => {
+    ble.cancelFirmwareUpdate();
+    $('#cancelFirmwareBtn').disabled = true;
+    $('#firmwareProgressText').textContent = 'Đang huỷ...';
+  });
+
+  $('#installFirmwareBtn')?.addEventListener('click', async () => {
+    if (!selectedFirmwareBin || !selectedFirmwareSig) return;
+    if (selectedFirmwareSig.length !== 116) {
+      toast('File chữ ký phải đúng 116 byte (52 manifest + 64 chữ ký) -- lấy từ sign_ota.py, đừng sửa tay', 'error');
+      return;
+    }
+    const manifest = selectedFirmwareSig.slice(0, 52);
+    const signature = selectedFirmwareSig.slice(52);
+    const release = {
+      download_url: URL.createObjectURL(new Blob([selectedFirmwareBin])),
+      manifest_b64: bytesToBase64(manifest),
+      signature_b64: bytesToBase64(signature),
+    };
+    const expectedVersion = `${manifest[6]}.${manifest[7]}.${manifest[8]}`;
+    await runFirmwareUpdate(release, expectedVersion, {
+      buttonEl: $('#installFirmwareBtn'), cancelBtnEl: $('#cancelFirmwareBtn'),
+      progressEl: $('#firmwareProgress'), barEl: $('#firmwareProgress').querySelector('span'),
+      textEl: $('#firmwareProgressText'),
+    });
+  });
+}
+
+/* R26.1 (Task 2 offline-activation): tab "Firmware" -- kênh cập nhật CHÍNH
+ * THỨC đọc manifest.json từ GitHub raw (FEATURES.OTA_GITHUB_CHANNEL). Ẩn cả
+ * nút tab lẫn #firmwareView, không đăng ký listener nào khi tắt -- đồng nhất
+ * cách làm với khối OTA_MANUAL_FILE ở trên. */
+if (!FEATURES.OTA_GITHUB_CHANNEL) {
+  $('#firmwareTabBtn')?.classList.add('hidden');
+  $('#firmwareView')?.classList.add('hidden');
+} else {
+  /* So major/minor/patch bằng số, không so chuỗi ("1.9.0" phải > "1.10.0"
+   * sai nếu so chuỗi) -- cùng thuật toán ble.js's updateFirmwareUnlocked()
+   * (dòng ~1088) đã dùng để CHẶN THẬT ở tầng transport; hàm này chỉ dùng để
+   * hiển thị đúng trạng thái TRƯỚC khi bấm nút, không thay thế kiểm tra đó. */
+  const compareVersion = (a, b) => {
+    const pa = String(a || '0.0.0').split('.').map(Number);
+    const pb = String(b || '0.0.0').split('.').map(Number);
+    for (let index = 0; index < 3; index++) {
+      const diff = (pa[index] || 0) - (pb[index] || 0);
+      if (diff !== 0) return diff > 0 ? 1 : -1;
+    }
+    return 0;
+  };
+
+  const FW_MANIFEST_CACHE_KEY = 'tnvaFwManifestCache';
+  const FW_MANIFEST_CACHE_TTL_MS = 10 * 60 * 1000;
+
+  async function fetchFwManifest({ force = false } = {}) {
+    if (!force) {
+      try {
+        const cached = JSON.parse(sessionStorage.getItem(FW_MANIFEST_CACHE_KEY) || 'null');
+        if (cached && Date.now() - cached.at < FW_MANIFEST_CACHE_TTL_MS) return cached.manifest;
+      } catch { /* Cache hỏng/không đọc được -- coi như chưa có, fetch lại. */ }
+    }
+    const response = await fetch(FW_MANIFEST_URL, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Không tải được manifest.json (HTTP ${response.status})`);
+    const manifest = await response.json();
+    try { sessionStorage.setItem(FW_MANIFEST_CACHE_KEY, JSON.stringify({ at: Date.now(), manifest })); }
+    catch { /* sessionStorage đầy/bị chặn (chế độ ẩn danh) -- không chặn luồng chính, chỉ mất cache. */ }
+    return manifest;
+  }
+
+  let fwSelectedBuild = null;
+
+  async function renderFirmwareTab() {
+    const currentVersionEl = $('#fwCurrentVersion'), latestVersionEl = $('#fwLatestVersion');
+    const connectRow = $('#fwConnectRow'), changelogEl = $('#fwChangelog'), statusEl = $('#fwStatusText');
+    const updateBtn = $('#fwUpdateBtn'), retryBtn = $('#fwRetryBtn');
+    fwSelectedBuild = null;
+    updateBtn.classList.add('hidden');
+    retryBtn.classList.add('hidden');
+    changelogEl.classList.add('hidden');
+    connectRow.classList.toggle('hidden', ble.connected);
+
+    if (!ble.connected) {
+      currentVersionEl.textContent = 'Chưa kết nối';
+      latestVersionEl.textContent = '--';
+      statusEl.textContent = 'Kết nối đồng hồ để kiểm tra cập nhật';
+      return;
+    }
+    const currentVersion = lastDeviceStatus?.time?.firmware || null;
+    currentVersionEl.textContent = currentVersion || '--';
+
+    statusEl.textContent = 'Đang kiểm tra bản cập nhật...';
+    let manifest;
+    try {
+      manifest = await fetchFwManifest();
+    } catch (error) {
+      latestVersionEl.textContent = '--';
+      statusEl.textContent = 'Không kiểm tra được bản cập nhật. Kiểm tra kết nối mạng.';
+      retryBtn.classList.remove('hidden');
+      return;
+    }
+
+    /* Task 3 mục 4: bỏ qua mọi build panel 4.2" khi FEATURES.PANEL_420 tắt
+     * -- panel==='213' đã tự loại '420' rồi, giữ điều kiện tường minh phòng
+     * khi manifest tương lai gộp nhiều panel khác cấu trúc. */
+    const build = (manifest.builds || []).find(entry =>
+      entry.panel === '213' && (FEATURES.PANEL_420 || entry.panel !== '420'));
+    if (!build) {
+      latestVersionEl.textContent = '--';
+      statusEl.textContent = 'Không có bản cập nhật cho panel 2.13" trong manifest.';
+      return;
+    }
+    latestVersionEl.textContent = build.version;
+
+    if (compareVersion(build.version, currentVersion) <= 0) {
+      statusEl.textContent = `Đồng hồ đang chạy phiên bản mới nhất (v${currentVersion})`;
+      return;
+    }
+
+    fwSelectedBuild = build;
+    changelogEl.textContent = build.notes || '';
+    changelogEl.classList.remove('hidden');
+    statusEl.textContent = '';
+    updateBtn.classList.remove('hidden');
+  }
+
+  $('#fwConnectBtn')?.addEventListener('click', event => connect(event.currentTarget));
+  $('#fwRetryBtn')?.addEventListener('click', () => { renderFirmwareTab().catch(reportError); });
+  $('#fwCancelBtn')?.addEventListener('click', () => {
+    ble.cancelFirmwareUpdate();
+    $('#fwCancelBtn').disabled = true;
+    $('#fwProgressText').textContent = 'Đang huỷ...';
+  });
+  $('#fwUpdateBtn')?.addEventListener('click', async () => {
+    if (!fwSelectedBuild) return;
+    const build = fwSelectedBuild;
+    const updateBtn = $('#fwUpdateBtn');
+    updateBtn.disabled = true;
+    /* Chốt với người dùng (xem lệnh gộp offline-activation, Task 2): mỗi
+     * bản .bin trên GitHub kèm 1 file <file>.ota-sig.bin cùng thư mục --
+     * đúng convention tools/ota-sign/sign_ota.py đã xuất mặc định. Không có
+     * file này, ble.updateFirmware() sẽ từ chối ở bước validate chữ ký
+     * (spi_flash.c's ota_begin() cũng từ chối y hệt trên chip thật). */
+    let release;
+    try {
+      const sigResponse = await fetch(FW_BASE_URL + build.file + '.ota-sig.bin', { cache: 'no-store' });
+      if (!sigResponse.ok) throw new Error('Không tải được file chữ ký .ota-sig.bin -- kiểm tra file này có tồn tại cùng thư mục trên GitHub không');
+      const sigBytes = new Uint8Array(await sigResponse.arrayBuffer());
+      if (sigBytes.length !== 116) throw new Error('File .ota-sig.bin sai định dạng (phải đúng 116 byte: 52 manifest + 64 chữ ký)');
+      release = {
+        download_url: FW_BASE_URL + build.file,
+        manifest_b64: bytesToBase64(sigBytes.slice(0, 52)),
+        signature_b64: bytesToBase64(sigBytes.slice(52)),
+        sha256: build.sha256, version: build.version, size_bytes: build.size,
+      };
+    } catch (error) {
+      reportError(error);
+      updateBtn.disabled = false;
+      return;
+    }
+    await runFirmwareUpdate(release, build.version, {
+      buttonEl: updateBtn, cancelBtnEl: $('#fwCancelBtn'),
+      progressEl: $('#fwProgress'), barEl: $('#fwProgress').querySelector('span'),
+      textEl: $('#fwProgressText'),
+    });
+    await renderFirmwareTab().catch(() => {});
+  });
+
+  refreshFirmwareTab = renderFirmwareTab; // gán vào biến module-scope khai báo phía trên -- xem showView()/updateDeviceStatus()/setDeviceOffline().
+}
 
 function downloadActivity(name, data, type) {
   download(name, new Blob([data], {type}));
@@ -2537,6 +2512,166 @@ $('#logSeverityFilter')?.addEventListener('change', renderActivityLog);
 function markBuiltinFace(faceId) {
   $$('[data-face-card]').forEach(card => card.classList.toggle('active-face', Number(card.dataset.faceCard) === Number(faceId)));
 }
+
+/* R26: Tự động đổi giao diện (Auto Rotate). Phase-1 scope (xem
+ * docs/AUTO_ROTATE_TNVA.md cho lý do): chỉ 6 mặt tích hợp + đúng 1 "mặt
+ * tuỳ chỉnh hiện có" (id 6 -- bất kể đó là giao diện lấy từ Kho hay ảnh
+ * khách tự tải, firmware/flash không phân biệt, đều là cùng một slot A/B
+ * đang có). Không polling giây qua BLE cho countdown -- chỉ đọc
+ * elapsedMinutes mỗi ~5s (deviceTimer có sẵn) rồi tự đếm lùi bằng
+ * setInterval 1s thuần JS phía web (mục K). */
+const AUTO_ROTATE_ITEM_NAMES = [
+  'Mặt 01 · Giờ + âm lịch',
+  'Mặt 02 · Dọc · Thông tin',
+  'Mặt 03 · Dọc · Lịch âm',
+  'Mặt 04 · Lịch tháng chia đôi',
+  'Mặt 05 · Lịch âm chi tiết',
+  'Mặt 06 · Sự kiện sắp tới',
+  'Ảnh tuỳ chỉnh hiện có (Kho giao diện / ảnh khách)'
+];
+let autoRotateItems = [];          // mảng thứ tự các id (0..6) đang bật, local (có thể chưa lưu)
+let autoRotateEnabledLocal = false;
+let autoRotateIntervalLocal = 10;
+let autoRotateDirty = false;       // true khi người dùng vừa sửa, chưa bấm Lưu -- chặn poll ghi đè
+let autoRotateElapsedMinutes = 0;
+let autoRotateCustomAvailable = false;
+let autoRotateCountdownTimer = null;
+
+function renderAutoRotatePanel() {
+  const enabledCb = $('#autoRotateEnabled');
+  if (enabledCb) enabledCb.checked = autoRotateEnabledLocal;
+  const intervalInput = $('#autoRotateIntervalInput');
+  if (intervalInput && document.activeElement !== intervalInput) intervalInput.value = autoRotateIntervalLocal;
+  $$('#autoRotateIntervalPresets button').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.minutes) === autoRotateIntervalLocal);
+  });
+  const list = $('#autoRotateItemList');
+  if (!list) return;
+  const order = autoRotateItems.slice();
+  for (let id = 0; id < AUTO_ROTATE_ITEM_NAMES.length; id++) if (!order.includes(id)) order.push(id);
+  list.innerHTML = order.map(id => {
+    const included = autoRotateItems.includes(id);
+    const idx = autoRotateItems.indexOf(id);
+    const unavailable = id === 6 && !autoRotateCustomAvailable;
+    return `<li class="auto-rotate-item-row${included ? ' included' : ''}${unavailable ? ' unavailable' : ''}" data-item="${id}">
+      <label><input type="checkbox" data-toggle-item="${id}" ${included ? 'checked' : ''} ${unavailable ? 'disabled' : ''}>
+      <span>${AUTO_ROTATE_ITEM_NAMES[id]}${unavailable ? ' <i>(chưa có ảnh trên máy)</i>' : ''}</span></label>
+      <span class="auto-rotate-item-actions">
+        <button type="button" data-move-up="${id}" ${!included || idx === 0 ? 'disabled' : ''} title="Lên">↑</button>
+        <button type="button" data-move-down="${id}" ${!included || idx === autoRotateItems.length - 1 ? 'disabled' : ''} title="Xuống">↓</button>
+      </span></li>`;
+  }).join('');
+}
+
+function moveAutoRotateItem(id, direction) {
+  const idx = autoRotateItems.indexOf(id);
+  const swapIdx = idx + direction;
+  if (idx < 0 || swapIdx < 0 || swapIdx >= autoRotateItems.length) return;
+  [autoRotateItems[idx], autoRotateItems[swapIdx]] = [autoRotateItems[swapIdx], autoRotateItems[idx]];
+  autoRotateDirty = true;
+  renderAutoRotatePanel();
+}
+
+$('#autoRotateItemList')?.addEventListener('click', event => {
+  const upBtn = event.target.closest('[data-move-up]:not([disabled])');
+  const downBtn = event.target.closest('[data-move-down]:not([disabled])');
+  if (upBtn) moveAutoRotateItem(Number(upBtn.dataset.moveUp), -1);
+  else if (downBtn) moveAutoRotateItem(Number(downBtn.dataset.moveDown), 1);
+});
+$('#autoRotateItemList')?.addEventListener('change', event => {
+  const toggle = event.target.closest('[data-toggle-item]');
+  if (!toggle) return;
+  const id = Number(toggle.dataset.toggleItem);
+  autoRotateDirty = true;
+  if (toggle.checked) { if (!autoRotateItems.includes(id)) autoRotateItems.push(id); }
+  else { autoRotateItems = autoRotateItems.filter(existing => existing !== id); }
+  renderAutoRotatePanel();
+});
+$('#autoRotateEnabled')?.addEventListener('change', event => {
+  autoRotateEnabledLocal = event.target.checked;
+  autoRotateDirty = true;
+});
+$('#autoRotateIntervalPresets')?.addEventListener('click', event => {
+  const btn = event.target.closest('button[data-minutes]');
+  if (!btn) return;
+  autoRotateIntervalLocal = Number(btn.dataset.minutes);
+  autoRotateDirty = true;
+  renderAutoRotatePanel();
+});
+$('#autoRotateIntervalInput')?.addEventListener('change', event => {
+  let value = Math.round(Number(event.target.value) || 0);
+  if (value < 1) value = 1;
+  if (value > 1440) value = 1440;
+  autoRotateIntervalLocal = value;
+  autoRotateDirty = true;
+  renderAutoRotatePanel();
+});
+
+function updateAutoRotateCountdown() {
+  const wrap = $('#autoRotateCountdown');
+  const valueEl = $('#autoRotateCountdownValue');
+  if (!wrap || !valueEl) return;
+  if (autoRotateCountdownTimer) { clearInterval(autoRotateCountdownTimer); autoRotateCountdownTimer = null; }
+  if (!autoRotateEnabledLocal || autoRotateItems.length < 2) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  let remainingSec = Math.max(0, (autoRotateIntervalLocal - autoRotateElapsedMinutes) * 60);
+  const render = () => {
+    const m = Math.floor(remainingSec / 60);
+    const s = remainingSec % 60;
+    valueEl.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+  render();
+  autoRotateCountdownTimer = setInterval(() => {
+    remainingSec = Math.max(0, remainingSec - 1);
+    render();
+    if (remainingSec <= 0) { clearInterval(autoRotateCountdownTimer); autoRotateCountdownTimer = null; }
+  }, 1000);
+}
+
+/* Gọi từ updateDeviceStatus() mỗi lần đọc FF01 (kết nối lần đầu + mỗi 5s).
+ * Không ghi đè state khi người dùng đang sửa dở (autoRotateDirty) -- tránh
+ * mất thao tác đang làm giữa hai lần poll. */
+function syncAutoRotateFromStatus(time) {
+  const panel = $('#autoRotatePanel');
+  if (!panel) return;
+  const ar = time?.autoRotate;
+  if (!ar) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+  autoRotateCustomAvailable = Boolean(time?.customValid);
+  autoRotateElapsedMinutes = ar.elapsedMinutes;
+  if (!autoRotateDirty) {
+    autoRotateEnabledLocal = ar.enabled;
+    autoRotateIntervalLocal = ar.intervalMinutes;
+    autoRotateItems = ar.items.slice(0, ar.itemCount).filter(id => id >= 0 && id < AUTO_ROTATE_ITEM_NAMES.length);
+    renderAutoRotatePanel();
+  } else {
+    renderAutoRotatePanel();
+  }
+  updateAutoRotateCountdown();
+}
+
+$('#autoRotateSaveBtn')?.addEventListener('click', async () => {
+  if (!ble.connected) return;
+  const statusEl = $('#autoRotateStatus');
+  try {
+    setBleOperationBusy(true, 'auto-rotate');
+    const status = await ble.setAutoRotateConfig({
+      enabled: autoRotateEnabledLocal,
+      intervalMinutes: autoRotateIntervalLocal,
+      items: autoRotateItems
+    });
+    autoRotateDirty = false;
+    updateDeviceStatus(status);
+    if (statusEl) statusEl.textContent = 'Đã lưu.';
+    toast('Đã lưu tự động đổi giao diện', 'success');
+    log('Đã lưu cấu hình tự động đổi giao diện');
+  } catch (error) {
+    if (statusEl) statusEl.textContent = `Lỗi: ${error.message}`;
+    toast(`Lỗi lưu tự động đổi giao diện: ${error.message}`, 'error');
+  } finally {
+    setBleOperationBusy(false, 'auto-rotate');
+  }
+});
 
 $$('.apply-face').forEach(button => button.addEventListener('click', async () => {
   /* R25.9 (mục 11ss/uu): nút áp dụng đã bị vô hiệu hoá đồng loạt bởi

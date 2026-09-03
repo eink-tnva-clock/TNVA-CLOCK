@@ -16,15 +16,18 @@ Sau đó mở:
 http://127.0.0.1:5500/
 ```
 
-## Máy chủ Pi (tùy chọn)
+## Kích hoạt thiết bị
 
-Pi chỉ dùng cho kho cộng đồng và phát hành bản cập nhật. Mở mục **Máy chủ Pi** trên thanh đầu trang, nhập địa chỉ gốc như:
+Không còn máy chủ nào cả. Kết nối đồng hồ, mở mục **Kích hoạt thiết bị**,
+sao chép mã thiết bị hiện trên màn hình rồi gửi qua Zalo (`zalo.me/0349816027`).
+Người bán ký mã bằng `tools/tnva-sign/sign_activation.py` trên PC, gửi lại
+mã dài qua Zalo, khách dán vào ô trong panel. Xem `docs/license-and-ota.md`.
 
-```text
-http://192.168.1.202:8080
-```
+## Cập nhật phần mềm (OTA)
 
-Không cần thêm `/admin`. Nếu nhập nhầm `/admin` hoặc `/api/health`, web tự sửa về địa chỉ gốc.
+Chọn file `.bin` phần mềm và file chữ ký (`.ota-sig.bin`, do
+`tools/ota-sign/sign_ota.py` tạo ra) trong mục **Cập nhật phần mềm**, bấm
+Cập nhật qua Bluetooth. Không cần mạng, không cần máy chủ.
 
 ## Màn hình
 
