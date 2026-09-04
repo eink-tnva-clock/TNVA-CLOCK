@@ -7,8 +7,8 @@
   <meta name="description" content="TNVA CLOCK Studio cho E-ink 2.13 inch và 4.2 inch 3 màu">
   <meta name="google" content="notranslate">
   <title>TNVA CLOCK Studio</title>
-  <link rel="stylesheet" href="assets/css/app.css?v=233">
-  <link rel="stylesheet" href="assets/css/carnival.css?v=232">
+  <link rel="stylesheet" href="assets/css/app.css?v=234">
+  <link rel="stylesheet" href="assets/css/carnival.css?v=233">
 </head>
 <body data-theme="carnival">
   <section id="connectGate" class="gate hidden" aria-hidden="true">
@@ -169,15 +169,39 @@
 
     <section id="libraryView" class="view">
       <section class="library-toolbar panel">
-        <div><span class="eyebrow">KHO TNVA</span><h2>Kho giao diện</h2><small>Giao diện có sẵn và giao diện đã lưu</small></div>
+        <div><span class="eyebrow">KHO TNVA</span><h2>Kho giao diện</h2><small>Giao diện có sẵn, đã lưu và cộng đồng chia sẻ</small></div>
         <div class="segmented library-segments" role="tablist" aria-label="Nguồn giao diện">
           <button class="library-tab active" data-library="warehouse">Kho có sẵn</button>
           <button class="library-tab" data-library="local">Đã lưu</button>
+          <button class="library-tab" data-library="community">Cộng đồng</button>
         </div>
-        <div class="library-actions"><input id="librarySearch" type="search" placeholder="Tìm tên hoặc tác giả"><select id="libraryOrientationFilter"><option value="auto">Khớp hướng đang thiết kế</option><option value="landscape">Ngang</option><option value="portrait">Dọc</option><option value="all">Cả hai</option></select></div>
+        <div class="library-actions">
+          <input id="librarySearch" type="search" placeholder="Tìm tên hoặc tác giả">
+          <select id="libraryOrientationFilter"><option value="auto">Khớp hướng đang thiết kế</option><option value="landscape">Ngang</option><option value="portrait">Dọc</option><option value="all">Cả hai</option></select>
+          <select id="communitySortSelect" class="hidden"><option value="luot_tai">Tải nhiều nhất</option><option value="moi_nhat">Mới nhất</option></select>
+          <button id="communityUploadBtn" class="btn primary hidden" type="button">Đăng giao diện</button>
+        </div>
       </section>
       <div id="localLibrary" class="card-grid hidden"></div>
       <div id="warehouseLibrary" class="card-grid"></div>
+      <!-- Kho cộng đồng (2026-09): thiết kế lưu ở Supabase dạng JSON gốc
+           (không phải .tnvaface đã compile) -- xem docs/KHO_CONG_DONG_TNVA.md.
+           #communityLibrary tự ẩn/hiện theo cùng cơ chế 3-way toggle với
+           2 khối .card-grid phía trên (xem app.js's library-tab handler). -->
+      <section id="communityLibrary" class="hidden">
+        <div id="communityStatus" class="empty-state panel hidden"></div>
+        <div id="communityGrid" class="card-grid"></div>
+        <div class="load-more-wrap"><button id="communityLoadMoreBtn" class="btn hidden" type="button">Xem thêm</button></div>
+        <details class="community-delete-box panel">
+          <summary>Xoá giao diện của tôi</summary>
+          <p class="prop-help">Dán mã xoá được cấp lúc đăng (dạng <code>id::mã</code>) rồi bấm Xoá. Giao diện bạn từng đăng trên máy này (nếu còn nhớ trong trình duyệt) liệt kê sẵn bên dưới kèm nút Xoá.</p>
+          <div class="row" style="display:flex;gap:8px">
+            <input id="communityDeleteToken" type="text" placeholder="id::mã-xoá">
+            <button id="communityDeleteBtn" class="btn compact" type="button">Xoá</button>
+          </div>
+          <div id="communityMyUploads" class="community-my-uploads"></div>
+        </details>
+      </section>
     </section>
 
     <section id="designerView" class="view">
@@ -278,7 +302,7 @@
         </div>
       </aside>
 
-      <div class="bottom-actions panel pro-bottom-actions"><div class="file-name-group"><input id="designTitle" value="Giao diện mới" placeholder="Tên giao diện"><input id="designAuthor" placeholder="Tác giả"></div><div class="action-group"><button id="newDesignBtn" class="btn">Tạo mới</button><button id="saveLocalBtn" class="btn">Lưu</button><button id="downloadBtn" class="btn">Xuất gói</button><button id="installBtn" class="btn primary">Gửi vào đồng hồ</button></div><input id="projectFileInput" type="file" accept=".tnvaproject,.tnvaface,.eink,.json,application/json" hidden></div>
+      <div class="bottom-actions panel pro-bottom-actions"><div class="file-name-group"><input id="designTitle" value="Giao diện mới" placeholder="Tên giao diện"><input id="designAuthor" placeholder="Tác giả"></div><div class="action-group"><button id="newDesignBtn" class="btn">Tạo mới</button><button id="saveLocalBtn" class="btn">Lưu</button><button id="downloadBtn" class="btn">Xuất gói</button><button id="designCommunityUploadBtn" class="btn" type="button">☁ Đăng lên Kho</button><button id="installBtn" class="btn primary">Gửi vào đồng hồ</button></div><input id="projectFileInput" type="file" accept=".tnvaproject,.tnvaface,.eink,.json,application/json" hidden></div>
       <div class="image-fit-actions hidden"><button id="fitImageBtn"></button><button id="fillImageBtn"></button><button id="resetImageBtn"></button></div>
     </section>
 
@@ -346,10 +370,23 @@
     <section id="deviceView" class="view hidden" aria-hidden="true"><button id="toggleHourBtn"></button></section>
 
     <datalist id="localFontFamilies"><option value="Arial"><option value="Arial Narrow"><option value="Courier New"><option value="Segoe UI"><option value="Tahoma"><option value="Times New Roman"></datalist>
+
+    <!-- Phần 4 (footer bản quyền): MỘT footer duy nhất ở cuối #appShell,
+         KHÔNG lặp lại trong mỗi <section class="view"> -- vì .view không
+         active bị display:none (không chiếm chỗ), footer này luôn hiện ra
+         ngay dưới nội dung của bất kỳ tab nào đang mở, tương đương hiệu ứng
+         "cuối content của tất cả các tab" mà không cần 6 bản sao trùng ID.
+         translate="no" giữ đúng cơ chế chống Chrome tự dịch đã có trên
+         <html class="notranslate">/<meta name="google" content="notranslate">. -->
+    <footer class="tnva-footer" translate="no">
+      <div class="tnva-footer-main">© 2026 TanTai — TNVA Studio</div>
+      <div class="tnva-footer-sub">Built with Claude &amp; ChatGPT</div>
+      <a class="tnva-footer-link" href="https://zalo.me/0349816027" target="_blank" rel="noopener">Liên hệ: zalo.me/0349816027</a>
+    </footer>
 </main>
 
   <div id="toast" class="toast hidden"></div>
   <div id="modalBackdrop" class="modal-backdrop hidden"><div id="modal" class="modal"></div></div>
-  <script type="module" src="assets/js/app.js?v=235"></script>
+  <script type="module" src="assets/js/app.js?v=236"></script>
 </body>
 </html>

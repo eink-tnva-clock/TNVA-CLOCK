@@ -40,6 +40,11 @@ const TYPE_LABELS = {
      nguyên nghĩa "ngày tháng năm gộp" như cũ). */
   dayOnly: 'Ngày (riêng)', monthOnly: 'Tháng (riêng)', yearOnly: 'Năm (riêng)'
 };
+/* Kho cộng đồng (2026-09): whitelist ID widget hợp lệ dùng để chặn upload
+ * thiết kế mang loại đối tượng lạ (từ bản Studio tương lai/khác) lên Kho --
+ * TYPE_LABELS đã là danh sách đầy đủ mọi 'type' hợp lệ hiện có (nguồn duy
+ * nhất, không lặp lại tay lần thứ 2 -- xem kho-upload.js). */
+const VALID_ELEMENT_TYPES = new Set(Object.keys(TYPE_LABELS));
 const FONT_STACKS = {
   pixel: '"TNVA Mono", ui-monospace, monospace',
   robotoCondensed: '"TNVA Sans", sans-serif',
@@ -2822,7 +2827,7 @@ export class FaceEditor {
   async previewDataUrl() { return (await this.renderToCanvas({ includeDynamic:true, oneBit:true })).toDataURL('image/png'); }
 }
 
-export { TYPE_LABELS, FONT_STACKS, FONT_IDS, DYNAMIC_TYPES, download, dataUrlToBytes };
+export { TYPE_LABELS, VALID_ELEMENT_TYPES, FONT_STACKS, FONT_IDS, DYNAMIC_TYPES, download, dataUrlToBytes };
 export { elementPlane, elementMatchesPlane, TRICOLOR_RED_PREVIEW, redUsageWarning, normalizeVietnameseText };
 /* Font-pipeline audit (2026-08-25) — Phần B: app.js's fontPickerHtml() dùng
  * lại ĐÚNG hàm này để chữ mẫu trong nút chọn font khớp 100% với chữ thật

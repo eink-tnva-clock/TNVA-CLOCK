@@ -6,7 +6,7 @@
  * cho bất kỳ đối tượng chữ động nào. Phát hiện khi nối dayOnly/monthOnly/
  * yearOnly vào cùng đường dùng chung này. */
 import { FaceEditor, TYPE_LABELS, DYNAMIC_TYPES, download, calendarGeometry, elementPlane, redUsageWarning, dynamicSample } from './editor.js';
-import { normalizeVietnameseText } from './editor.js';
+import { normalizeVietnameseText, VALID_ELEMENT_TYPES } from './editor.js';
 import { TnvaBle, crc32, describeBleDiagnostics } from './ble.js';
 import { saveProject, listProjects, deleteProject } from './storage.js';
 import { redeemCliActivationCode } from './activation.js';
@@ -26,6 +26,9 @@ import {
 } from './atlas-generator.js';
 import { normalizeCrisp213Package } from './text-size-policy.js';
 import { TET_DECORATIONS, tetDecorationById } from './tet-decorations.js';
+import { isKhoConfigured, KHO_PAGE_SIZE, KHO_MAX_PACKAGE_BYTES } from './kho-config.js';
+import { khoList, khoIncrementDownload, khoReport, khoDeleteByToken, KHO_OFFLINE_MESSAGE } from './kho-client.js';
+import { validateForKho, submitKhoUpload, listMyUploadTokens, forgetMyUploadToken } from './kho-upload.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -2159,6 +2162,7 @@ function activeLibraryMode() {
 function renderActiveLibrary() {
   const mode = activeLibraryMode();
   if (mode === 'warehouse') return renderWarehouseLibrary();
+  if (mode === 'community') return renderCommunityLibrary({ reset: true });
   return renderLocalLibrary();
 }
 
@@ -2167,10 +2171,236 @@ $$('.library-tab').forEach(button => button.addEventListener('click', () => {
   const mode=button.dataset.library;
   $('#localLibrary').classList.toggle('hidden',mode!=='local');
   $('#warehouseLibrary').classList.toggle('hidden',mode!=='warehouse');
+  $('#communityLibrary')?.classList.toggle('hidden',mode!=='community');
+  $('#communitySortSelect')?.classList.toggle('hidden',mode!=='community');
+  $('#communityUploadBtn')?.classList.toggle('hidden',mode!=='community');
   renderActiveLibrary();
 }));
 $('#librarySearch').addEventListener('input', renderActiveLibrary);
 $('#libraryOrientationFilter')?.addEventListener('change', renderActiveLibrary);
+
+/* ==== Kho cộng đồng (2026-09) ====
+ * Lệnh gốc: kho lưu JSON thiết kế gốc (không phải .tnf đã compile) -- "Tải
+ * về Studio" nạp JSON này qua editor.loadProject() (ĐÚNG hàm import project
+ * dùng cho local/warehouse/mở file), rồi biên dịch lại tại chỗ bằng
+ * editor.compile() y hệt lúc bấm "Gửi vào đồng hồ" -- không có đường mã hoá
+ * TNF1 thứ hai nào ở đây. Đăng bài validate bằng editor.compile() thật
+ * trước khi gửi API (kho-upload.js's validateForKho()), không đoán kích
+ * thước. Mọi lỗi mạng/Supabase đi qua KHO_OFFLINE_MESSAGE, không chặn tab
+ * Chính/Thiết kế/BLE (Phần 5). */
+let communityRows = [];
+let communityFrom = 0;
+let communityHasMore = true;
+let communityLoading = false;
+
+function communitySortMode() { return $('#communitySortSelect')?.value || 'luot_tai'; }
+
+function communityDesignCard(row, isTop) {
+  const { width, height } = rowScreenSize(row);
+  return `<article class="design-card community-card" data-card="${escapeHtml(row.id)}">
+    <div class="card-preview">${isTop ? '<span class="top-badge">🔥 TOP</span>' : ''}${row.thumb_url ? `<img loading="lazy" src="${escapeHtml(row.thumb_url)}" alt="">` : ''}</div>
+    <div class="card-body">
+      <div class="card-title">${escapeHtml(row.ten || 'Không tên')}<button class="report-icon" data-report type="button" title="Báo cáo giao diện này">⚑</button></div>
+      <div class="card-meta">bởi ${escapeHtml(row.tac_gia || 'Ẩn danh')} · ⬇ ${Number(row.luot_tai) || 0} · ${width}×${height}</div>
+      <div class="card-actions"><button class="btn primary" data-open type="button">Tải về Studio</button></div>
+    </div></article>`;
+}
+
+function validateCommunityProjectShape(project) {
+  if (!project || !Array.isArray(project.elements)) throw new Error('Project không có danh sách đối tượng hợp lệ.');
+  const width = Number(project.width);
+  const height = Number(project.height);
+  const is213 = (width === 212 && height === 104) || (width === 104 && height === 212);
+  if (!is213 || Number(project.planes || 1) === 2) throw new Error('Kho hiện chỉ nhận project 2.13 inch 1-bit.');
+  const invalid = project.elements.find(item => !item || !VALID_ELEMENT_TYPES.has(item.type));
+  if (invalid) throw new Error(`Project có đối tượng không hỗ trợ: ${invalid?.type || 'không rõ'}.`);
+}
+
+function bindCommunityCards(root, rows) {
+  root.querySelectorAll('[data-card]').forEach(card => {
+    const row = rows.find(item => String(item.id) === card.dataset.card);
+    if (!row) return;
+    card.querySelector('[data-open]').onclick = async () => {
+      /* Không tin JSON từ bảng chỉ vì nó đi qua UI upload: publishable API là
+       * công khai nên client tuỳ biến có thể insert trực tiếp. Validate lại,
+       * nạp tạm + compile THẬT trước khi giữ project; nếu lỗi thì phục hồi
+       * thiết kế đang làm và không tăng lượt tải. */
+      const previousProject = editor.exportProject();
+      try {
+        validateCommunityProjectShape(row.thiet_ke);
+        editor.loadProject(row.thiet_ke);
+        const compiled = await editor.compile();
+        if (compiled.packageBytes.length > KHO_MAX_PACKAGE_BYTES) {
+          throw new Error(`Gói sau khi compile là ${compiled.packageBytes.length} byte, vượt ${KHO_MAX_PACKAGE_BYTES} byte.`);
+        }
+        khoIncrementDownload(row.id); // không await -- lượt tải không được chặn UI
+        showView('designer');
+        toast('Đã nạp giao diện. Bấm Gửi để đưa xuống đồng hồ.', 'success');
+      } catch (error) {
+        try { editor.loadProject(previousProject); } catch (restoreError) { console.error('[Kho] Không phục hồi được project cũ:', restoreError); }
+        reportError(new Error(`Giao diện cộng đồng không hợp lệ: ${error?.message || error}`));
+      }
+    };
+    card.querySelector('[data-report]').onclick = async () => {
+      if (!confirm(`Báo cáo giao diện "${row.ten}"?`)) return;
+      let reported = [];
+      try { reported = JSON.parse(localStorage.getItem('kho_reported') || '[]'); } catch { reported = []; }
+      if (reported.includes(row.id)) { toast('Bạn đã báo cáo giao diện này rồi', 'error'); return; }
+      try {
+        await khoReport(row.id);
+        reported.push(row.id);
+        localStorage.setItem('kho_reported', JSON.stringify(reported));
+        toast('Đã gửi báo cáo', 'success');
+      } catch (error) { reportError(error); }
+    };
+  });
+}
+
+function renderCommunityGrid(sort) {
+  const grid = $('#communityGrid');
+  const status = $('#communityStatus');
+  const loadMoreBtn = $('#communityLoadMoreBtn');
+  const term = normalizeSearch($('#librarySearch')?.value?.trim());
+  const wanted = libraryOrientationWanted();
+  const filtered = communityRows
+    .filter(row => !term || normalizeSearch(`${row.ten} ${row.tac_gia}`).includes(term))
+    .filter(row => !wanted || (row.width > row.height ? 'landscape' : 'portrait') === wanted)
+    .filter(isPanelCompatibleRow)
+    .filter(isPanel420AllowedRow);
+  const topIds = sort === 'luot_tai' ? new Set(communityRows.slice(0, 3).map(row => row.id)) : new Set();
+  grid.innerHTML = filtered.length
+    ? filtered.map(row => communityDesignCard(row, topIds.has(row.id))).join('')
+    : '<div class="empty-state panel">Chưa có giao diện nào (thử đổi bộ lọc)</div>';
+  status.classList.add('hidden');
+  loadMoreBtn.classList.toggle('hidden', !communityHasMore);
+  bindCommunityCards(grid, filtered);
+}
+
+async function renderCommunityLibrary({ reset = true } = {}) {
+  const status = $('#communityStatus');
+  const loadMoreBtn = $('#communityLoadMoreBtn');
+  if (reset) { communityRows = []; communityFrom = 0; communityHasMore = true; $('#communityGrid').innerHTML = ''; }
+  const showOffline = message => {
+    status.classList.remove('hidden');
+    status.innerHTML = `${escapeHtml(message)} <button id="communityRetryBtn" class="btn compact" type="button">Thử lại</button>`;
+    $('#communityRetryBtn').onclick = () => renderCommunityLibrary({ reset: true });
+    loadMoreBtn.classList.add('hidden');
+  };
+  if (!isKhoConfigured()) { showOffline(KHO_OFFLINE_MESSAGE); return; }
+  if (communityLoading || !communityHasMore) return;
+  communityLoading = true;
+  if (!communityRows.length) { status.classList.remove('hidden'); status.textContent = 'Đang tải'; }
+  try {
+    const sort = communitySortMode();
+    const page = await khoList({ sort, from: communityFrom, to: communityFrom + KHO_PAGE_SIZE - 1 });
+    page.forEach(row => { row.width = row.thiet_ke?.width; row.height = row.thiet_ke?.height; });
+    communityHasMore = page.length === KHO_PAGE_SIZE;
+    communityFrom += page.length;
+    communityRows = communityRows.concat(page);
+    renderCommunityGrid(sort);
+  } catch (error) {
+    showOffline(error.message || KHO_OFFLINE_MESSAGE);
+  } finally {
+    communityLoading = false;
+  }
+}
+$('#communitySortSelect')?.addEventListener('change', () => renderCommunityLibrary({ reset: true }));
+$('#communityLoadMoreBtn')?.addEventListener('click', () => renderCommunityLibrary({ reset: false }));
+
+function showCommunityDeleteTokenModal(token) {
+  showModal(`<h2>Đã đăng lên Kho</h2>
+    <p class="prop-help">Lưu mã này để tự xoá giao diện của bạn sau này.</p>
+    <div class="row" style="display:flex;gap:8px;align-items:center"><code style="flex:1;word-break:break-all;user-select:all">${escapeHtml(token)}</code><button class="btn compact" id="communityCopyTokenBtn" type="button">Sao chép</button></div>
+    <div class="modal-actions"><button class="btn primary" id="modalCancel">Xong</button></div>`);
+  $('#modalCancel').onclick = closeModal;
+  $('#communityCopyTokenBtn').onclick = async () => {
+    try { await navigator.clipboard.writeText(token); toast('Đã sao chép', 'success'); }
+    catch { toast('Không sao chép được -- tự bôi đen rồi copy', 'error'); }
+  };
+}
+
+async function openCommunityUploadModal() {
+  showModal('<h2>Đăng giao diện lên Kho</h2><p class="prop-help">Đang kiểm tra thiết kế hiện tại…</p>');
+  let prepared;
+  try {
+    prepared = await validateForKho(editor);
+  } catch (error) {
+    showModal(`<h2>Đăng giao diện lên Kho</h2><p class="prop-help">${escapeHtml(error.message)}</p><div class="modal-actions"><button class="btn" id="modalCancel">Đóng</button></div>`);
+    $('#modalCancel').onclick = closeModal;
+    return;
+  }
+  const thumbObjectUrl = URL.createObjectURL(prepared.thumbBlob);
+  showModal(`<h2>Đăng giao diện lên Kho</h2>
+    <div class="community-upload-preview"><img src="${thumbObjectUrl}" alt=""><span>${prepared.kichThuocNen} / 4096 byte</span></div>
+    <div class="form-grid" style="display:grid;gap:8px">
+      <label>Tên giao diện<input id="communityUploadTen" maxlength="40" value="${escapeHtml(editor.project.title || '')}"></label>
+      <label>Tác giả<input id="communityUploadTacGia" maxlength="24" value="${escapeHtml(editor.project.author || '')}"></label>
+      <label>Mô tả (có thể bỏ trống)<textarea id="communityUploadMoTa" maxlength="200" rows="3"></textarea></label>
+    </div>
+    <div class="modal-actions"><button class="btn" id="modalCancel">Huỷ</button><button class="btn primary" id="communityUploadSubmit" type="button">Đăng</button></div>`);
+  const cleanup = () => URL.revokeObjectURL(thumbObjectUrl);
+  $('#modalCancel').onclick = () => { cleanup(); closeModal(); };
+  $('#communityUploadSubmit').onclick = async () => {
+    const ten = $('#communityUploadTen').value.trim();
+    const tacGia = $('#communityUploadTacGia').value.trim();
+    const moTa = $('#communityUploadMoTa').value.trim();
+    if (!ten || !tacGia) { toast('Điền tên và tác giả', 'error'); return; }
+    const button = $('#communityUploadSubmit'); button.disabled = true;
+    try {
+      const { deleteToken } = await submitKhoUpload(editor, { ten, tacGia, moTa });
+      cleanup();
+      showCommunityDeleteTokenModal(deleteToken);
+      renderCommunityMyUploads();
+      if (activeLibraryMode() === 'community') renderCommunityLibrary({ reset: true });
+    } catch (error) { reportError(error); button.disabled = false; }
+  };
+}
+$('#communityUploadBtn')?.addEventListener('click', openCommunityUploadModal);
+// Nút nhanh ngay trong Xưởng thiết kế: dùng CHUNG đúng modal/validation/upload
+// của Kho cộng đồng ở trên, không tạo luồng compile/BLE/firmware mới.
+$('#designCommunityUploadBtn')?.addEventListener('click', openCommunityUploadModal);
+
+function renderCommunityMyUploads() {
+  const root = $('#communityMyUploads');
+  if (!root) return;
+  const map = listMyUploadTokens();
+  const entries = Object.entries(map);
+  root.innerHTML = entries.length
+    ? entries.map(([id, info]) => `<div class="community-my-upload-row" data-id="${escapeHtml(id)}"><span>${escapeHtml(info.title || id)}</span><button class="btn compact" data-forget-delete type="button">Xoá</button></div>`).join('')
+    : '<p class="prop-help">Chưa đăng giao diện nào từ trình duyệt này.</p>';
+  root.querySelectorAll('[data-forget-delete]').forEach(button => {
+    button.onclick = async () => {
+      const id = button.closest('[data-id]').dataset.id;
+      const info = map[id];
+      if (!info) return;
+      button.disabled = true;
+      try {
+        const ok = await khoDeleteByToken(info.token);
+        if (!ok) { toast('Mã không đúng.', 'error'); button.disabled = false; return; }
+        forgetMyUploadToken(id);
+        toast('Đã xoá', 'success');
+        renderCommunityMyUploads();
+        if (activeLibraryMode() === 'community') renderCommunityLibrary({ reset: true });
+      } catch (error) { reportError(error); button.disabled = false; }
+    };
+  });
+}
+$('#communityDeleteBtn')?.addEventListener('click', async () => {
+  const input = $('#communityDeleteToken');
+  const token = input.value.trim();
+  if (!token) return;
+  const button = $('#communityDeleteBtn'); button.disabled = true;
+  try {
+    const ok = await khoDeleteByToken(token);
+    if (!ok) { toast('Mã không đúng.', 'error'); button.disabled = false; return; }
+    forgetMyUploadToken(token.split('::')[0]);
+    input.value = '';
+    toast('Đã xoá', 'success');
+    renderCommunityMyUploads();
+    if (activeLibraryMode() === 'community') renderCommunityLibrary({ reset: true });
+  } catch (error) { reportError(error); }
+  finally { button.disabled = false; }
+});
 
 /* R25.8 (mục 2e/2f): thay cho cơ chế tự bù ngầm cũ (đã bỏ hẳn khỏi
  * ble.js) -- một số hiệu chỉnh do người dùng tự nhập, lưu ở localStorage,
@@ -2866,6 +3096,7 @@ updateZoom();
 renderLayers();
 setDeviceOffline();
 renderActiveLibrary();
+renderCommunityMyUploads();
 
 
 const previewParams = new URLSearchParams(location.search);

@@ -186,3 +186,33 @@
   .designer-screen-card .stage-scroller{padding:10px 8px}
   .pro-workspace-bar{padding:6px;gap:6px}
 }
+
+/* Kho cộng đồng (2026-09): Cộng đồng dùng lại .card-grid/.design-card/
+ * .card-preview/.card-body/.card-title/.card-meta/.card-actions/
+ * .empty-state/.load-more-wrap có sẵn -- chỉ thêm phần KHÁC với local/kho
+ * có sẵn (badge TOP, icon báo cáo, khối xem trước lúc đăng, danh sách "đã
+ * đăng" trong ô xoá). */
+.card-preview{position:relative}
+.top-badge{position:absolute;left:7px;top:7px;z-index:2;background:var(--accent);color:#15100a;font-size:10px;font-weight:1000;padding:4px 8px;border-radius:999px;letter-spacing:.02em}
+.report-icon{border:1px solid #334a67;background:transparent;color:var(--muted);border-radius:8px;padding:2px 7px;font-size:12px;cursor:pointer;line-height:1.6}
+.report-icon:hover{color:var(--danger);border-color:var(--danger)}
+.community-delete-box{padding:14px 16px;margin-top:14px}
+.community-delete-box>summary{cursor:pointer;font-weight:850;list-style:none}
+.community-delete-box>summary::-webkit-details-marker{display:none}
+.community-delete-box .row{margin-top:10px}
+.community-delete-box input{flex:1;min-width:0}
+.community-my-uploads{display:grid;gap:6px;margin-top:10px}
+.community-my-upload-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.community-my-upload-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.community-upload-preview{display:flex;align-items:center;gap:12px;margin:10px 0 14px}
+.community-upload-preview img{width:106px;aspect-ratio:212/104;object-fit:contain;background:#efecdf;border:1px solid #bcb9ae;border-radius:10px;image-rendering:pixelated}
+.community-upload-preview span{color:var(--muted);font-size:12px;font-weight:800}
+
+/* Phần 4 (footer bản quyền) -- một khối tĩnh cuối #appShell, không lặp lại
+ * trên mỗi tab (xem chú thích trong index.html), không position:fixed nên
+ * không bao giờ che canvas/nút trên mobile. */
+.tnva-footer{text-align:center;padding:18px 12px 24px;border-top:1px solid var(--line);margin-top:22px}
+.tnva-footer-main{font-size:13px;font-weight:600;color:inherit}
+.tnva-footer-sub{font-size:11px;opacity:.55;margin-top:4px}
+.tnva-footer-link{display:inline-block;font-size:11px;opacity:.55;margin-top:4px;color:inherit;text-decoration:none}
+.tnva-footer-link:hover{opacity:1;text-decoration:underline}
