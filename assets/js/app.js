@@ -11,6 +11,7 @@ import { TnvaBle, crc32, describeBleDiagnostics } from './ble.js';
 import { saveProject, listProjects, deleteProject } from './storage.js';
 import { redeemCliActivationCode } from './activation.js';
 import { DEVICE, FEATURES, FW_MANIFEST_URL, FW_BASE_URL } from './config.js';
+import { activationApiConfigured, activationApiBase, requestDeviceActivation, getDeviceActivationStatus, signatureHexToBytes } from './activation-api.js';
 import {
   PANEL_PROFILES, DEFAULT_PROFILE_KEY, profileById, COLOR_MODE,
   setActivePanel, getActivePanel, panelIdForSize, keyForProfile,
@@ -563,6 +564,19 @@ function setActivationPanelVisibility(status) {
   const deviceId = status?.time?.deviceId || null;
   if (idNode) idNode.textContent = deviceId || '-- (kết nối đồng hồ để lấy mã)';
   if (copyBtn) copyBtn.disabled = !deviceId;
+  const requestBtn = $('#activationRequestBtn');
+  const checkBtn = $('#activationCheckBtn');
+  const savedCode = deviceId ? localStorage.getItem(`tnvaActivationRequest:${deviceId.toLowerCase()}`) : '';
+  if (requestBtn) requestBtn.disabled = !deviceId || !activationApiConfigured();
+  if (checkBtn) checkBtn.disabled = !deviceId || !activationApiConfigured() || !savedCode;
+  const statusNode = $('#activationRequestStatus');
+  if (statusNode && deviceId && !activationApiConfigured()) {
+    statusNode.className = 'activation-request-status warning';
+    statusNode.textContent = 'Máy chủ kích hoạt chưa được cấu hình. Quản trị viên cần điền URL HTTPS của Pi trong assets/js/config.js.';
+  } else if (statusNode && savedCode && statusNode.classList.contains('hidden')) {
+    statusNode.className = 'activation-request-status pending';
+    statusNode.textContent = `Yêu cầu ${savedCode} đang được lưu trên máy này. Bấm “Kiểm tra trạng thái” sau khi quản trị viên duyệt.`;
+  }
 }
 
 $('#activationCopyDeviceIdBtn')?.addEventListener('click', async () => {
@@ -570,6 +584,91 @@ $('#activationCopyDeviceIdBtn')?.addEventListener('click', async () => {
   if (!deviceId) return;
   try { await navigator.clipboard.writeText(deviceId); toast('Đã sao chép mã thiết bị', 'success'); }
   catch { toast('Không sao chép được -- tự chọn và copy thủ công', 'error'); }
+});
+
+
+function activationRequestStorageKey(deviceId) {
+  return `tnvaActivationRequest:${String(deviceId || '').toLowerCase()}`;
+}
+
+function setActivationRequestMessage(message, type = 'pending') {
+  const node = $('#activationRequestStatus');
+  if (!node) return;
+  node.className = `activation-request-status ${type}`;
+  node.textContent = message;
+}
+
+async function checkActivationRequest({ autoApply = true } = {}) {
+  const deviceId = lastDeviceStatus?.time?.deviceId;
+  if (!deviceId) throw new Error('Chưa đọc được mã thiết bị');
+  const key = activationRequestStorageKey(deviceId);
+  const requestCode = localStorage.getItem(key);
+  if (!requestCode) throw new Error('Chưa có yêu cầu kích hoạt trên trình duyệt này');
+  const result = await getDeviceActivationStatus(requestCode);
+  if (result.status === 'pending') {
+    setActivationRequestMessage(`Yêu cầu ${requestCode} đang chờ quản trị viên duyệt.`, 'pending');
+    return result;
+  }
+  if (result.status === 'rejected') {
+    setActivationRequestMessage(`Yêu cầu đã bị từ chối${result.rejection_reason ? `: ${result.rejection_reason}` : '.'}`, 'error');
+    return result;
+  }
+  if (result.status !== 'approved' || !result.activation_signature) {
+    throw new Error('Trạng thái kích hoạt từ máy chủ không hợp lệ');
+  }
+  if (!autoApply) {
+    setActivationRequestMessage(`Yêu cầu ${requestCode} đã được duyệt.`, 'success');
+    return result;
+  }
+  setActivationRequestMessage('Đã được duyệt. Đang kích hoạt thiết bị qua Bluetooth…', 'success');
+  const next = await ble.submitActivationSignature(signatureHexToBytes(result.activation_signature));
+  updateDeviceStatus(next);
+  localStorage.removeItem(key);
+  setActivationRequestMessage('Kích hoạt thành công. Thiết bị đã được mở khoá.', 'success');
+  toast('Đã kích hoạt thiết bị', 'success');
+  return result;
+}
+
+$('#activationRequestBtn')?.addEventListener('click', async () => {
+  const button = $('#activationRequestBtn');
+  const deviceId = lastDeviceStatus?.time?.deviceId;
+  if (!deviceId) { toast('Kết nối đồng hồ trước', 'error'); return; }
+  if (!activationApiConfigured()) {
+    setActivationRequestMessage(`Chưa cấu hình máy chủ kích hoạt (${activationApiBase() || 'URL trống'}).`, 'warning');
+    return;
+  }
+  button.disabled = true;
+  try {
+    const note = $('#activationRequestNote')?.value || '';
+    const result = await requestDeviceActivation(deviceId, note);
+    if (!result.request_code) throw new Error('Máy chủ không trả mã yêu cầu');
+    localStorage.setItem(activationRequestStorageKey(deviceId), result.request_code);
+    const checkBtn = $('#activationCheckBtn'); if (checkBtn) checkBtn.disabled = false;
+    setActivationRequestMessage(
+      result.status === 'approved'
+        ? `Yêu cầu ${result.request_code} đã được duyệt. Đang nhận chữ ký kích hoạt…`
+        : `Đã gửi yêu cầu ${result.request_code}. Chờ quản trị viên TNVA duyệt.`,
+      result.status === 'approved' ? 'success' : 'pending'
+    );
+    if (result.status === 'approved') await checkActivationRequest();
+  } catch (error) {
+    setActivationRequestMessage(error.message || 'Không gửi được yêu cầu kích hoạt', 'error');
+    reportError(error);
+  } finally {
+    button.disabled = !lastDeviceStatus?.time?.deviceId || !activationApiConfigured();
+  }
+});
+
+$('#activationCheckBtn')?.addEventListener('click', async () => {
+  const button = $('#activationCheckBtn');
+  button.disabled = true;
+  try { await checkActivationRequest(); }
+  catch (error) { setActivationRequestMessage(error.message, 'error'); reportError(error); }
+  finally {
+    const deviceId = lastDeviceStatus?.time?.deviceId;
+    const savedCode = deviceId && localStorage.getItem(activationRequestStorageKey(deviceId));
+    button.disabled = !deviceId || !activationApiConfigured() || !savedCode;
+  }
 });
 
 $('#activationPasteBtn')?.addEventListener('click', async () => {
@@ -765,6 +864,7 @@ function showView(name) {
   if (name === 'firmware') refreshFirmwareTab().catch(() => {});
 }
 $$('.tab').forEach(tab => tab.addEventListener('click', () => showView(tab.dataset.view)));
+$$('.home-shortcut').forEach(button => button.addEventListener('click', () => showView(button.dataset.shortcutView)));
 
 function closeObjectPalette() { const p=$('#objectPalette'); if(!p) return; p.classList.add('hidden'); p.setAttribute('aria-hidden','true'); }
 $$('[data-add]').forEach(button => button.addEventListener('click', () => { editor.addElement(button.dataset.add); closeObjectPalette(); }));

@@ -7,8 +7,8 @@
   <meta name="description" content="TNVA CLOCK Studio cho E-ink 2.13 inch và 4.2 inch 3 màu">
   <meta name="google" content="notranslate">
   <title>TNVA CLOCK Studio</title>
-  <link rel="stylesheet" href="assets/css/app.css?v=234">
-  <link rel="stylesheet" href="assets/css/carnival.css?v=233">
+  <link rel="stylesheet" href="assets/css/app.css?v=240">
+  <link rel="stylesheet" href="assets/css/carnival.css?v=240">
 </head>
 <body data-theme="carnival">
   <section id="connectGate" class="gate hidden" aria-hidden="true">
@@ -39,25 +39,36 @@
              hoạt (cờ FF01, không phải cache trình duyệt) -- ẩn hẳn (không
              chỉ badge) một khi đã kích hoạt. setActivationPanelVisibility()
              trong app.js quyết định hidden/không mỗi lần đọc trạng thái. -->
-        <details class="service-settings" id="activationPanel">
-          <summary>⚠ Kích hoạt thiết bị</summary>
-          <p class="prop-help">Thiết bị chưa kích hoạt: giờ vẫn chạy bình thường, nhưng mọi lệnh điều khiển qua Bluetooth (đổi giờ, đổi giao diện, cập nhật phần mềm...) đang bị khoá cho tới khi kích hoạt.</p>
-          <div class="form-grid" style="display:grid;gap:8px">
-            <div class="row" style="display:flex;gap:8px;align-items:center">
-              <code id="activationDeviceId" style="flex:1">--</code>
+        <details class="service-settings activation-service" id="activationPanel">
+          <summary>⚡ Kích hoạt thiết bị</summary>
+          <div class="activation-sheet">
+            <div class="activation-sheet-head">
+              <div>
+                <b>Kích hoạt TNVA CLOCK</b>
+                <p class="prop-help">Gửi yêu cầu trực tiếp tới hệ thống TNVA. Sau khi được duyệt, web sẽ nhận chữ ký và kích hoạt qua Bluetooth.</p>
+              </div>
+              <span class="activation-status-dot" aria-hidden="true"></span>
+            </div>
+            <div class="activation-device-row">
+              <div><small>MÃ THIẾT BỊ</small><code id="activationDeviceId">--</code></div>
               <button id="activationCopyDeviceIdBtn" class="btn compact" type="button" disabled>Sao chép</button>
             </div>
-            <p class="prop-help">Gửi mã thiết bị ở trên cho người bán qua Zalo để nhận mã kích hoạt, rồi dán mã nhận được vào ô bên dưới.</p>
-            <!-- Lệnh Studio (mục E3, 2026-08-26): link thật, mở tab mới,
-                 trên điện thoại hệ điều hành tự nhận diện zalo.me và mở
-                 thẳng app Zalo vào đúng chat -- không cần xử lý gì thêm ở
-                 đây, đó là hành vi mặc định của link zalo.me. -->
-            <a class="btn primary" href="https://zalo.me/0349816027" target="_blank" rel="noopener">Liên hệ kích hoạt qua Zalo</a>
-            <textarea id="activationCliCode" rows="3" placeholder="Dán mã kích hoạt nhận được qua Zalo vào đây"></textarea>
-            <div class="row" style="display:flex;gap:8px">
-              <button id="activationPasteBtn" class="btn compact" type="button">Dán từ clipboard</button>
-              <button id="activationCliApplyBtn" class="btn primary compact" type="button">Áp dụng mã</button>
+            <label class="activation-note">Ghi chú (không bắt buộc)<textarea id="activationRequestNote" rows="2" maxlength="500" placeholder="Ví dụ: Khách Nguyễn Văn A / đơn hàng 0123"></textarea></label>
+            <div class="activation-primary-actions">
+              <button id="activationRequestBtn" class="btn primary" type="button" disabled>Gửi yêu cầu kích hoạt</button>
+              <button id="activationCheckBtn" class="btn" type="button" disabled>Kiểm tra trạng thái</button>
             </div>
+            <div id="activationRequestStatus" class="activation-request-status hidden" role="status"></div>
+            <details class="activation-manual-fallback">
+              <summary>Kích hoạt thủ công / hỗ trợ</summary>
+              <p class="prop-help">Dùng khi máy chủ tạm thời không truy cập được. Nhập mã do quản trị viên TNVA cung cấp.</p>
+              <textarea id="activationCliCode" rows="3" placeholder="Dán mã kích hoạt"></textarea>
+              <div class="activation-primary-actions">
+                <button id="activationPasteBtn" class="btn compact" type="button">Dán từ clipboard</button>
+                <button id="activationCliApplyBtn" class="btn primary compact" type="button">Áp dụng mã</button>
+                <a class="btn compact" href="https://zalo.me/0349816027" target="_blank" rel="noopener">Liên hệ hỗ trợ</a>
+              </div>
+            </details>
           </div>
         </details>
         <details class="service-settings" id="clockCorrectionPanel">
@@ -91,14 +102,23 @@
 
     <section id="mainView" class="view active">
       <section class="hero panel carnival-hero">
-        <div>
-          <span class="eyebrow">TNVA / CARNIVAL STUDIO</span>
-          <h1>TNVA CLOCK Studio</h1>
-          <p>Chọn giao diện, thiết kế và gửi vào đồng hồ.</p>
+        <div class="hero-copy">
+          <span class="eyebrow">TNVA CLOCK STUDIO</span>
+          <h1>Thiết kế cho E‑ink, gọn hơn và rõ hơn.</h1>
+          <p>Chọn giao diện, tuỳ chỉnh nội dung và đồng bộ với đồng hồ TNVA ngay trên trình duyệt.</p>
+          <div class="hero-actions">
+            <button class="btn primary home-shortcut" type="button" data-shortcut-view="designer">Bắt đầu thiết kế →</button>
+            <button id="syncTimeBtn" class="btn" disabled>Đồng bộ giờ</button>
+          </div>
         </div>
-        <div class="hero-actions">
-          <button id="syncTimeBtn" class="btn primary" disabled>Đồng bộ giờ</button>
-        </div>
+        <div class="hero-preview" aria-hidden="true"><img src="previews/app-man1.png?v=24" alt=""></div>
+      </section>
+
+      <section class="home-shortcuts" aria-label="Lối tắt">
+        <button class="home-shortcut-card home-shortcut" type="button" data-shortcut-view="library"><span>▦</span><div><b>Kho giao diện</b><small>Khám phá giao diện có sẵn</small></div></button>
+        <button class="home-shortcut-card home-shortcut" type="button" data-shortcut-view="designer"><span>✦</span><div><b>Thiết kế nhanh</b><small>Tạo giao diện theo ý bạn</small></div></button>
+        <button class="home-shortcut-card home-shortcut" type="button" data-shortcut-view="image"><span>▧</span><div><b>Tải ảnh</b><small>Chuyển ảnh thành E‑ink</small></div></button>
+        <button class="home-shortcut-card home-shortcut" type="button" data-shortcut-view="countdown"><span>◷</span><div><b>Đếm ngược</b><small>Sự kiện và ngày đặc biệt</small></div></button>
       </section>
 
       <section class="device-grid">
@@ -380,13 +400,13 @@
          <html class="notranslate">/<meta name="google" content="notranslate">. -->
     <footer class="tnva-footer" translate="no">
       <div class="tnva-footer-main">© 2026 TanTai — TNVA Studio</div>
-      <div class="tnva-footer-sub">Built with Claude &amp; ChatGPT</div>
+      <div class="tnva-footer-sub">TNVA CLOCK Studio · Thiết kế · Đồng bộ · Chia sẻ</div>
       <a class="tnva-footer-link" href="https://zalo.me/0349816027" target="_blank" rel="noopener">Liên hệ: zalo.me/0349816027</a>
     </footer>
 </main>
 
   <div id="toast" class="toast hidden"></div>
   <div id="modalBackdrop" class="modal-backdrop hidden"><div id="modal" class="modal"></div></div>
-  <script type="module" src="assets/js/app.js?v=236"></script>
+  <script type="module" src="assets/js/app.js?v=240"></script>
 </body>
 </html>

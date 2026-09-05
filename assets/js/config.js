@@ -44,6 +44,16 @@ export const FEATURES = {
  * kiểu đó, và tải .bin trực tiếp được từ browser). Điền <OWNER>/<REPO> thật
  * trước khi bật OTA_GITHUB_CHANNEL trong sản xuất.
  */
+
+/*
+ * Máy chủ kích hoạt TNVA (R27 mobile/admin). Trang GitHub Pages là HTTPS,
+ * vì vậy URL dùng thật cũng phải là HTTPS (khuyến nghị Cloudflare Tunnel
+ * trỏ về Pi:8080). Không đặt private key hay service-role secret trong web.
+ * Chỉ thay đúng URL công khai ở đây sau khi tunnel/domain đã sẵn sàng.
+ */
+export const ACTIVATION_API_BASE =
+  'https://enquiries-organizing-ferry-fridge.trycloudflare.com';
+
 export const FW_MANIFEST_URL =
   'https://raw.githubusercontent.com/<OWNER>/<REPO>/main/firmware/manifest.json';
 export const FW_BASE_URL =
